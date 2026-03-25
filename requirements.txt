@@ -1,6 +1,7 @@
 streamlit
 pandas
 requests
-pillow
+Pillow
 google-generativeai
 openpyxl
+pytz
