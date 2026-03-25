@@ -75,7 +75,10 @@ class AISmartHelper:
         請包含：
         1. 吸引人的第一句話 (要有溫度)
         2. 清晰的物件基本資料與優點列點 (使用 Emoji，請確保把上述有提供的資訊都寫進去)
-        3. 呼籲行動 (歡迎預約賞屋)
+        3. 呼籲行動 (歡迎預約賞屋)，**並明確列出店面資訊：**
+           **🏢 有巢氏大甲店**
+           **📞 電話：04-26888050**
+           **📍 地址：台中市大甲區文武路99號**
         4. 標籤 #大甲房產 #大甲買屋 #有巢氏房屋
         
         只要給我文案內文就好，不用自我介紹。
@@ -178,7 +181,7 @@ with st.form("master_form"):
 
     gen_btn = st.form_submit_button("🤖 第一步：產生 AI 專業文案")
 
-# --- 處理輸入防呆轉換 (加上"約") ---
+# --- 處理輸入防呆轉換 (加上"約"與店面資訊) ---
 display_price = f"{price_raw} 萬" if price_raw.isnumeric() else price_raw
 display_ping = f"約 {ping_raw} 坪" if ping_raw.replace('.', '', 1).isdigit() else ping_raw
 display_land_ping = f"約 {land_ping_raw} 坪" if land_ping_raw.replace('.', '', 1).isdigit() else land_ping_raw
