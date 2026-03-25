@@ -24,7 +24,7 @@ def check_password():
     if not st.session_state["password_correct"]:
         st.warning("🔒 這是有巢氏大甲店內部專用系統，請輸入通關密語。")
         pwd = st.text_input("輸入密碼", type="password")
-        if pwd == "9988":  # 密碼已更新為 9988
+        if pwd == "9988":
             st.session_state["password_correct"] = True
             st.rerun()
         elif pwd:
@@ -44,7 +44,6 @@ GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    # 使用你指定的最新版 2.5 flash 模型
     ai_model = genai.GenerativeModel('gemini-2.5-flash')
 
 # ==========================================
@@ -56,7 +55,6 @@ class AISmartHelper:
         if not GEMINI_KEY:
             return "⚠️ 系統錯誤：找不到 Gemini API 金鑰！請確認是否已在 Streamlit 後台設定 Secrets。"
             
-        # 動態組合文案條件
         details = f"物件名稱：{name}\n"
         if location: details += f"地點：{location}\n"
         if ping: details += f"建坪：{ping}\n"
@@ -112,7 +110,7 @@ class AISmartHelper:
         return Image.alpha_composite(img, txt).convert("RGB")
 
 # ==========================================
-# 4. FB API 溝通模組 (新增精準錯誤回報)
+# 4. FB API 溝通模組 
 # ==========================================
 def upload_to_fb(image_obj):
     buf = io.BytesIO()
@@ -122,7 +120,6 @@ def upload_to_fb(image_obj):
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
     res_data = res.json()
     
-    # 檢查是否有錯誤
     if 'error' in res_data:
         return None, res_data['error'].get('message', 'FB API 未知錯誤')
     return res_data.get('id'), None
@@ -181,11 +178,11 @@ with st.form("master_form"):
 
     gen_btn = st.form_submit_button("🤖 第一步：產生 AI 專業文案")
 
-# --- 處理輸入防呆轉換 ---
+# --- 處理輸入防呆轉換 (加上"約") ---
 display_price = f"{price_raw} 萬" if price_raw.isnumeric() else price_raw
-display_ping = f"{ping_raw} 坪" if ping_raw.replace('.', '', 1).isdigit() else ping_raw
-display_land_ping = f"{land_ping_raw} 坪" if land_ping_raw.replace('.', '', 1).isdigit() else land_ping_raw
-display_age = f"{age_raw} 年" if age_raw.isnumeric() else age_raw
+display_ping = f"約 {ping_raw} 坪" if ping_raw.replace('.', '', 1).isdigit() else ping_raw
+display_land_ping = f"約 {land_ping_raw} 坪" if land_ping_raw.replace('.', '', 1).isdigit() else land_ping_raw
+display_age = f"約 {age_raw} 年" if age_raw.isnumeric() else age_raw
 display_parking = parking_raw
 
 display_layout = layout_raw
@@ -240,9 +237,8 @@ if 'master_ai_msg' in st.session_state:
                     else:
                         st.error(f"❌ 照片上傳失敗，FB 系統回報：{err_msg}")
                         has_upload_error = True
-                        break # 如果有錯誤就停止上傳其他照片
+                        break 
                 
-                # 只有在照片全部成功上傳的情況下，才送出貼文
                 if photo_ids and not has_upload_error:
                     full_msg = f"{final_msg}\n\n🔗 了解更多詳情：{link}\n#大甲房產 #大甲買屋 #有巢氏房屋"
                     
