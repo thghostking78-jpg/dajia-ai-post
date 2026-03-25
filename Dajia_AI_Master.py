@@ -45,7 +45,7 @@ GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 # 如果沒有抓到金鑰，先不要設定 genai，避免卡死
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+ai_model = genai.GenerativeModel('gemini-pro')
 
 # ==========================================
 # 3. 智慧功能類別 
