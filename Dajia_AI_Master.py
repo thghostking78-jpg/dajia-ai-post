@@ -4,7 +4,7 @@ import os
 import requests
 import io
 import time
-import pytz  # 新增：處理台灣時區
+import pytz
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
@@ -15,7 +15,31 @@ import google.generativeai as genai
 st.set_page_config(page_title="有巢氏大甲 AI 控盤 Master", page_icon="🏠", layout="wide")
 
 # ==========================================
-# 1. 核心安全設定
+# 1. 簡單密碼鎖系統 (保護你的粉專)
+# ==========================================
+def check_password():
+    """驗證密碼是否正確"""
+    if "password_correct" not in st.session_state:
+        st.session_state["password_correct"] = False
+
+    if not st.session_state["password_correct"]:
+        st.warning("🔒 這是有巢氏大甲店內部專用系統，請輸入通關密語。")
+        pwd = st.text_input("輸入密碼", type="password")
+        # 這裡設定你們的團隊密碼，你可以自己改掉 "dajia888"
+        if pwd == "9988":
+            st.session_state["password_correct"] = True
+            st.rerun()
+        elif pwd:
+            st.error("❌ 密碼錯誤，請詢問管理員。")
+        return False
+    return True
+
+# 如果密碼沒過，就停止執行後面的所有程式碼
+if not check_password():
+    st.stop()
+
+# ==========================================
+# 2. 核心安全設定
 # ==========================================
 FB_PAGE_ID = st.secrets.get("FB_PAGE_ID", "185076618218504")
 FB_TOKEN = st.secrets.get("FB_TOKEN", "您的FB_Token")
@@ -25,7 +49,7 @@ genai.configure(api_key=GEMINI_KEY)
 ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # ==========================================
-# 2. 智慧功能類別 (AISmartHelper)
+# 3. 智慧功能類別 (AISmartHelper)
 # ==========================================
 class AISmartHelper:
     @staticmethod
@@ -48,9 +72,7 @@ class AISmartHelper:
         txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt)
         w, h = img.size
-        
         try:
-            # 確保資料夾內有 NotoSansTC-Regular.ttf
             font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 15))
         except:
             font = ImageFont.load_default()
@@ -69,14 +91,13 @@ class AISmartHelper:
         return Image.alpha_composite(img, txt).convert("RGB")
 
 # ==========================================
-# 3. FB API 溝通模組 (支援排程)
+# 4. FB API 溝通模組
 # ==========================================
 def upload_to_fb(image_obj):
     buf = io.BytesIO()
     image_obj.save(buf, format='JPEG', quality=95)
     buf.seek(0)
     url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
-    # 上傳照片時設定 published=false，讓它變成隱藏狀態等待發佈
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
     return res.json().get('id')
 
@@ -85,19 +106,18 @@ def post_feed_scheduled(message, photo_ids, unix_timestamp):
     payload = {
         'message': message, 
         'access_token': FB_TOKEN,
-        'published': 'false', # 關鍵：告訴 FB 這是一篇排程貼文
-        'scheduled_publish_time': unix_timestamp # 關鍵：告訴 FB 何時發佈
+        'published': 'false',
+        'scheduled_publish_time': unix_timestamp
     }
     for i, p_id in enumerate(photo_ids):
         payload[f'attached_media[{i}]'] = f'{{"media_fbid": "{p_id}"}}'
-    
     return requests.post(url, data=payload)
 
 # ==========================================
-# 4. 主介面
+# 5. 主介面
 # ==========================================
-st.title("🚀 大甲房產 AI 雲端無人機 (全自動排程版)")
-st.info("💡 這個版本會將貼文直接傳送至 Facebook 原廠的排程系統。設定好後，您可以安心關閉網頁或電腦，FB 時間到會自動發文！")
+st.title("🚀 大甲房產 AI 雲端無人機 (團隊密碼版)")
+st.info("💡 設定好時間與週數後，系統會自動幫您將未來幾週的貼文一次送進 FB 排程中心！")
 
 with st.form("master_form"):
     col1, col2 = st.columns(2)
@@ -107,10 +127,12 @@ with st.form("master_form"):
         layout = st.text_input("📐 格局", placeholder="3房 2廳 2衛")
         
         st.markdown("##### 📅 設定發佈時間 (台灣時間)")
-        # 預設時間為現在時間的 30 分鐘後 (因為 FB 規定排程必須是大於 10 分鐘後)
         default_time = (datetime.now() + timedelta(minutes=30)).time()
-        sc_date = st.date_input("發佈日期")
+        sc_date = st.date_input("首次發佈日期")
         sc_time = st.time_input("發佈時間", value=default_time)
+        
+        # 新增：重複發佈的週數選擇 (最高限制 10 週，因為 FB 只能排 75 天)
+        repeat_weeks = st.number_input("🔁 往後重複發佈幾週？ (1代表只發這一次)", min_value=1, max_value=10, value=1)
 
     with col2:
         link = st.text_input("🔗 官網詳情連結", placeholder="請貼上網址")
@@ -126,27 +148,21 @@ if gen_btn:
 if 'master_ai_msg' in st.session_state:
     final_msg = st.text_area("📝 第二步：確認與修改文案", value=st.session_state['master_ai_msg'], height=200)
     
-    if st.button("🚀 第三步：立即處理並上傳至 FB 排程中心", type="primary"):
+    if st.button("🚀 第三步：處理並上傳至 FB 排程中心", type="primary"):
         if not uploaded_files:
             st.error("⚠️ 請至少上傳一張照片喔！")
         else:
-            # --- 處理台灣時間與 UNIX Timestamp ---
             tw_tz = pytz.timezone('Asia/Taipei')
-            # 組合使用者選的日期與時間
-            local_dt = datetime.combine(sc_date, sc_time)
-            # 標記為台灣時區
-            local_dt = tw_tz.localize(local_dt)
-            # 轉換為 FB 需要的 Unix Timestamp
-            unix_time = int(local_dt.timestamp())
-            
-            # 檢查時間是否符合 FB 規定 (必須在未來 10 分鐘到 75 天之內)
             current_unix = int(time.time())
-            if unix_time < current_unix + 600:
+            
+            # 先檢查「第一次發文」的時間有沒有太近 (低於10分鐘)
+            first_dt = tw_tz.localize(datetime.combine(sc_date, sc_time))
+            if int(first_dt.timestamp()) < current_unix + 600:
                 st.error("❌ Facebook 規定：排程時間必須至少是「現在時間的 10 分鐘之後」，請將時間往後調整。")
             else:
-                with st.spinner("正在為照片上浮水印，並傳送至 Facebook 排程中心... 這可能需要一兩分鐘，請勿關閉網頁。"):
+                with st.spinner("正在處理照片並建立多週排程，這可能需要幾分鐘，請耐心等候..."):
+                    # 1. 先處理照片上傳 (一次就好，後面的貼文可以重複用這組照片ID)
                     photo_ids = []
-                    # 處理並上傳照片
                     for uploaded_file in uploaded_files:
                         img_processed = AISmartHelper.add_watermark(uploaded_file.read())
                         pid = upload_to_fb(img_processed)
@@ -155,16 +171,22 @@ if 'master_ai_msg' in st.session_state:
                     
                     if photo_ids:
                         full_msg = f"{final_msg}\n\n🔗 了解更多詳情：{link}\n#大甲房產 #大甲買屋 #有巢氏房屋"
+                        success_count = 0
                         
-                        # 呼叫排程 API
-                        fb_res = post_feed_scheduled(full_msg, photo_ids, unix_time)
+                        # 2. 跑迴圈，依照選定的週數，每週建立一篇排程貼文
+                        for w in range(repeat_weeks):
+                            # 每次往後加 7 天 (w=0 是第一週, w=1 是第二週...)
+                            future_dt = first_dt + timedelta(days=7*w)
+                            unix_time = int(future_dt.timestamp())
+                            
+                            fb_res = post_feed_scheduled(full_msg, photo_ids, unix_time)
+                            if fb_res.status_code == 200:
+                                success_count += 1
+                                st.write(f"✅ 已排程：{future_dt.strftime('%Y-%m-%d %H:%M')}")
+                            else:
+                                st.error(f"❌ {future_dt.strftime('%Y-%m-%d')} 排程失敗：{fb_res.json()}")
                         
-                        if fb_res.status_code == 200:
-                            post_id = fb_res.json().get("id")
-                            st.success(f"✅ 太棒了！任務成功提交給 Facebook！")
-                            st.info(f"📅 貼文已鎖定於 **{sc_date.strftime('%Y-%m-%d')} {sc_time.strftime('%H:%M')}** 自動公開發表。您現在可以安心關閉電腦了！")
-                            st.markdown(f"*(小提醒：您可以前往 Facebook 粉絲專頁的 **Meta Business Suite -> 規劃工具** 中查看或修改這篇排程貼文)*")
+                        if success_count > 0:
+                            st.success(f"🎉 太棒了！成功建立 {success_count} 篇排程貼文！您可以關閉網頁了。")
                             st.balloons()
                             del st.session_state['master_ai_msg']
-                        else:
-                            st.error(f"❌ 建立排程失敗：{fb_res.json()}")
