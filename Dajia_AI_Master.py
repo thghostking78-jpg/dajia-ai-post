@@ -1,34 +1,38 @@
 import streamlit as st
 import pandas as pd
-import os
 import requests
 import io
-import time
 import pytz
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
 
 # ==========================================
-# 0. 頁面設定
+# 0. 頁面與核心設定
 # ==========================================
-st.set_page_config(page_title="有巢氏大甲 AI 控盤 Master", page_icon="🏠", layout="wide")
+st.set_page_config(page_title="有巢氏大甲 AI 控盤 Master Pro", page_icon="🏠", layout="wide")
+
+FB_PAGE_ID = st.secrets.get("FB_PAGE_ID", "185076618218504")
+FB_TOKEN = st.secrets.get("FB_TOKEN", "")
+GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
+
+if GEMINI_KEY:
+    genai.configure(api_key=GEMINI_KEY)
+    # 建議使用穩定版 1.5-flash
+    ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
 # ==========================================
-# 1. 簡單密碼鎖系統
+# 1. 安全檢查 (密碼建議存在 Secrets)
 # ==========================================
 def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
-
     if not st.session_state["password_correct"]:
-        st.warning("🔒 這是有巢氏大甲店內部專用系統，請輸入通關密語。")
-        pwd = st.text_input("輸入密碼", type="password")
-        if pwd == "9988":
+        st.warning("🔒 有巢氏大甲店內部專用系統")
+        pwd = st.text_input("輸入通關密語", type="password")
+        if pwd == st.secrets.get("SYSTEM_PWD", "9988"):
             st.session_state["password_correct"] = True
             st.rerun()
-        elif pwd:
-            st.error("❌ 密碼錯誤，請詢問管理員。")
         return False
     return True
 
@@ -36,52 +40,41 @@ if not check_password():
     st.stop()
 
 # ==========================================
-# 2. 核心安全設定
-# ==========================================
-FB_PAGE_ID = st.secrets.get("FB_PAGE_ID", "185076618218504")
-FB_TOKEN = st.secrets.get("FB_TOKEN", "")
-GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
-
-if GEMINI_KEY:
-    genai.configure(api_key=GEMINI_KEY)
-    ai_model = genai.GenerativeModel('gemini-2.5-flash')
-
-# ==========================================
-# 3. 智慧功能類別 
+# 2. 智慧功能類別
 # ==========================================
 class AISmartHelper:
     @staticmethod
-    def generate_copy(name, location, ping, land_ping, price, layout, floor, age, parking, features):
-        if not GEMINI_KEY:
-            return "⚠️ 系統錯誤：找不到 Gemini API 金鑰！請確認 Secrets 設定。"
-            
-        details = f"物件名稱：{name}\n"
-        if location: details += f"地點：{location}\n"
-        if ping: details += f"建坪：{ping}\n"
-        if land_ping: details += f"地坪：{land_ping}\n"
-        if price: details += f"總價：{price}\n"
-        if layout: details += f"格局：{layout}\n"
-        if floor: details += f"樓層：{floor}\n"
-        if age: details += f"屋齡：{age}\n"
-        if parking: details += f"車位：{parking}\n"
-        if features: details += f"特色：{features}\n"
+    def generate_copy(data_dict, style="在地專業"):
+        if not GEMINI_KEY: return "⚠️ 找不到 API Key"
+        
+        # 建立詳細資訊字串
+        details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
+        
+        style_prompts = {
+            "在地專業": "強調大甲在地地段潛力、投資報酬率與專業行情分析。",
+            "溫馨感性": "強調成家夢想、空間給予家人的溫度、大甲生活圈的便利與人情味。",
+            "限時急售": "營造物件稀有性、超值價格、手刀預約的急迫感。"
+        }
         
         prompt = f"""
-        你是一位大甲區房仲行銷專家。請為以下物件撰寫一份吸引人的 Facebook 貼文：
+        你是一位台中大甲區的房仲行銷專家，目前在『有巢氏房屋大甲加盟店』服務。
+        請根據以下物件資訊撰寫一份 FB 貼文。
         
-        【物件資訊】
+        【文案風格】: {style_prompts.get(style)}
+        【物件資訊】:
         {details}
         
-        請嚴格遵守以下格式：
-        1. 吸引人的第一句話 (要有溫度)
-        2. 清晰的物件基本資料與優點列點 (使用 Emoji)
-        3. 呼籲行動 (歡迎預約賞屋)，並固定附上店面資訊：
+        【格式要求】:
+        1. 標題要吸睛 (包含重點特色)。
+        2. 使用適當的 Emoji 增加閱讀舒適度。
+        3. 內容需包含物件規格，並轉化為買方看得懂的優點。
+        4. 結尾固定附上：
            🏠 **有巢氏房屋大甲加盟店**
-           📞 **電話：04-26888050**
-           📍 **地址：台中市大甲區文武路99號**
-        4. 標籤 #大甲房產 #大甲買屋 #有巢氏房屋
+           📞 **服務專線：04-26888050**
+           📍 **店址：台中市大甲區文武路99號**
+        5. 標籤：#大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產
         
-        只要給我文案內文就好，不用自我介紹。
+        請直接給出文案內容，不要有任何前言或碎念。
         """
         try:
             return ai_model.generate_content(prompt).text
@@ -95,153 +88,131 @@ class AISmartHelper:
         draw = ImageDraw.Draw(txt)
         w, h = img.size
         try:
-            font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 15))
+            # 嘗試讀取字體，若失敗則用預設
+            font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 18))
         except:
             font = ImageFont.load_default()
 
         bbox = draw.textbbox((0, 0), text, font=font)
-        text_w = bbox[2] - bbox[0]
-        text_h = bbox[3] - bbox[1]
+        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
         
-        margin = int(w * 0.02)
-        x = w - text_w - margin
-        y = h - text_h - margin
-        
-        draw.text((x+2, y+2), text, font=font, fill=(0, 0, 0, 150))
-        draw.text((x, y), text, font=font, fill=(255, 255, 255, 180))
+        # 右下角留邊
+        margin = int(w * 0.03)
+        draw.text((w - tw - margin + 2, h - th - margin + 2), text, font=font, fill=(0, 0, 0, 150))
+        draw.text((w - tw - margin, h - th - margin), text, font=font, fill=(255, 255, 255, 200))
         
         return Image.alpha_composite(img, txt).convert("RGB")
 
 # ==========================================
-# 4. FB API 溝通模組 
+# 3. FB API 溝通模組
 # ==========================================
-def upload_to_fb(image_obj):
+def upload_photo_to_fb(image_obj):
     buf = io.BytesIO()
-    image_obj.save(buf, format='JPEG', quality=95)
+    image_obj.save(buf, format='JPEG', quality=90)
     buf.seek(0)
     url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
-    res_data = res.json()
-    if 'error' in res_data:
-        return None, res_data['error'].get('message', '未知錯誤')
-    return res_data.get('id'), None
+    return res.json().get('id'), res.json().get('error')
 
-def post_feed_action(message, photo_ids, mode="immediate", unix_timestamp=None):
+def post_to_feed(message, photo_ids, scheduled_time=None):
     url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
     payload = {'message': message, 'access_token': FB_TOKEN}
-    if mode == "scheduled":
+    if scheduled_time:
         payload['published'] = 'false'
-        payload['scheduled_publish_time'] = unix_timestamp
-    else:
-        payload['published'] = 'true'
+        payload['scheduled_publish_time'] = scheduled_time
+    
     for i, p_id in enumerate(photo_ids):
         payload[f'attached_media[{i}]'] = f'{{"media_fbid": "{p_id}"}}'
+    
     return requests.post(url, data=payload)
 
 # ==========================================
-# 5. 主介面 (重整標籤與提示文字)
+# 4. 主介面 UI
 # ==========================================
-st.title("🚀 大甲房產 AI 雲端無人機")
+st.title("🚀 大甲房產 AI 雲端無人機 Pro")
+st.caption("自動化文案、浮水印、多平台排程管理系統")
 
-with st.form("master_form"):
-    col1, col2, col3 = st.columns(3)
+with st.form("pro_master_form"):
+    m_col1, m_col2, m_col3 = st.columns(3)
     
-    with col1:
-        st.markdown("##### 📝 基本資料")
-        name = st.text_input("🏠 物件名稱", placeholder="例如：大甲車站溫馨兩房")
-        location = st.text_input("📍 鄰近商圈", placeholder="例如：近大甲車站、體育場旁")
-        price_raw = st.text_input("💰 總價", placeholder="請輸入數字 (萬)")
-        ping_raw = st.text_input("📐 建坪", placeholder="請輸入數字 (坪)")
-        land_ping_raw = st.text_input("🌲 地坪", placeholder="請輸入數字 (坪)")
+    with m_col1:
+        st.subheader("📝 核心資訊")
+        name = st.text_input("🏠 物件名稱*", placeholder="例：大甲鎮瀾商圈美墅")
+        price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
+        ping = st.number_input("📐 建坪 (坪)", min_value=0.0, step=0.1, value=45.0)
+        land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
+        # 自動計算單價
+        unit_price = round(price / ping, 1) if ping > 0 else 0
+        st.info(f"💡 自動計算單價：{unit_price} 萬/坪")
+
+    with m_col2:
+        st.subheader("📏 規格細節")
+        layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
+        floor = st.text_input("🏢 樓層", placeholder="如: 1-4樓 或 5/12")
+        age = st.text_input("📅 屋齡", placeholder="如: 5年")
+        parking = st.selectbox("🚗 車位", ["自有車庫", "坡道平面", "坡道機械", "門口停車", "無"])
+        features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
+
+    with m_col3:
+        st.subheader("📣 行銷設定")
+        copy_style = st.selectbox("🎨 文案語氣", ["在地專業", "溫馨感性", "限時急售"])
+        link = st.text_input("🔗 詳情連結", placeholder="官網物件網址")
+        uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
         
-    with col2:
-        st.markdown("##### 📏 規格細節")
-        layout_raw = st.text_input("🚪 格局", placeholder="請輸入3位數字，如 322")
-        floor_raw = st.text_input("🏢 樓層", placeholder="例如 5/12 或 4 (透天)")
-        age_raw = st.text_input("📅 屋齡", placeholder="請輸入數字 (年)")
-        parking_raw = st.text_input("🚗 車位", placeholder="例如：平面、機械、無")
-        features = st.text_area("✨ 特色描述", placeholder="採光佳、近學區、免整理...", height=68)
-        
-    with col3:
-        st.markdown("##### 📸 發佈設定")
-        link = st.text_input("🔗 詳情連結", placeholder="請貼上官網網址")
-        uploaded_files = st.file_uploader("📸 上傳照片 (多選)", type=['jpg','png','jpeg'], accept_multiple_files=True)
-        
-        publish_mode = st.radio("模式", ["⚡ 立即發佈", "🕒 預約排程"], horizontal=True)
-        
-        if publish_mode == "🕒 預約排程":
-            default_time = (datetime.now() + timedelta(minutes=30)).time()
-            c_date, c_time = st.columns(2)
-            sc_date = c_date.date_input("日期")
-            sc_time = c_time.time_input("時間", value=default_time)
-            repeat_weeks = st.number_input("🔁 重複幾週？", min_value=1, max_value=10, value=1)
+        mode = st.radio("發佈模式", ["⚡ 立即發佈", "🕒 預約排程"], horizontal=True)
+        publish_time = datetime.now() + timedelta(minutes=30)
+        if mode == "🕒 預約排程":
+            d = st.date_input("排程日期", datetime.now())
+            t = st.time_input("排程時間", datetime.now().time())
+            publish_time = datetime.combine(d, t)
 
-    gen_btn = st.form_submit_button("🤖 第一步：產生 AI 專業文案")
+    gen_btn = st.form_submit_button("🤖 生成 AI 專業文案")
 
-# --- 處理輸入轉換 ---
-display_price = f"{price_raw} 萬" if price_raw.isnumeric() else price_raw
-display_ping = f"約 {ping_raw} 坪" if ping_raw.replace('.', '', 1).isdigit() else ping_raw
-display_land_ping = f"約 {land_ping_raw} 坪" if land_ping_raw.replace('.', '', 1).isdigit() else land_ping_raw
-display_age = f"約 {age_raw} 年" if age_raw.isnumeric() else age_raw
-
-display_layout = layout_raw
-if len(layout_raw) == 3 and layout_raw.isnumeric():
-    display_layout = f"{layout_raw[0]}房 {layout_raw[1]}廳 {layout_raw[2]}衛"
-
-display_floor = floor_raw
-if "/" in floor_raw:
-    parts = floor_raw.split("/")
-    if len(parts) == 2:
-        display_floor = f"所在 {parts[0]} 樓 / 總樓層 {parts[1]} 樓"
-elif floor_raw.isnumeric():
-    display_floor = f"整棟 {floor_raw} 樓"
-
+# --- 邏輯處理 ---
 if gen_btn:
-    with st.spinner("AI 靈感湧現中..."):
-        st.session_state['master_ai_msg'] = AISmartHelper.generate_copy(
-            name, location, display_ping, display_land_ping, display_price, display_layout, display_floor, display_age, parking_raw, features
-        )
+    data_payload = {
+        "物件名稱": name, "總價": f"{price}萬", "單價": f"{unit_price}萬/坪",
+        "建坪": f"{ping}坪", "地坪": f"{land_ping}坪", "格局": layout,
+        "樓層": floor, "屋齡": age, "車位": parking, "特色": features
+    }
+    with st.spinner("AI 正在分析大甲行情並撰寫文中..."):
+        st.session_state['current_copy'] = AISmartHelper.generate_copy(data_payload, style=copy_style)
 
-if 'master_ai_msg' in st.session_state:
+# --- 第二步：確認與發佈 ---
+if 'current_copy' in st.session_state:
     st.markdown("---")
-    final_msg = st.text_area("📝 第二步：確認與修改文案", value=st.session_state['master_ai_msg'], height=250)
+    final_copy = st.text_area("📝 文案確認/修改", value=st.session_state['current_copy'], height=300)
     
-    if st.button("🚀 第三步：確認並發佈至 FB", type="primary"):
+    if st.button("🚀 確認發佈至 Facebook 粉絲專頁", type="primary"):
         if not uploaded_files:
-            st.error("⚠️ 請至少上傳一張照片喔！")
+            st.error("❌ 至少要有一張照片才能發佈喔！")
         else:
-            with st.spinner("正在處理照片並上傳至 Facebook..."):
+            with st.status("正在執行自動發佈流程...", expanded=True) as status:
                 photo_ids = []
-                for uploaded_file in uploaded_files:
-                    img_processed = AISmartHelper.add_watermark(uploaded_file.read())
-                    pid, err_msg = upload_to_fb(img_processed)
-                    if pid: photo_ids.append(pid)
-                    else:
-                        st.error(f"❌ 照片上傳失敗：{err_msg}")
-                        st.stop()
+                # 1. 處理照片
+                status.write("🖼️ 正在處理浮水印與上傳照片...")
+                progress_bar = st.progress(0)
                 
+                for idx, file in enumerate(uploaded_files):
+                    img = AISmartHelper.add_watermark(file.getvalue())
+                    pid, err = upload_photo_to_fb(img)
+                    if pid:
+                        photo_ids.append(pid)
+                    else:
+                        st.error(f"第 {idx+1} 張上傳失敗: {err}")
+                    progress_bar.progress((idx + 1) / len(uploaded_files))
+                
+                # 2. 發佈貼文
                 if photo_ids:
-                    full_msg = f"{final_msg}\n\n🔗 了解更多詳情：{link}\n#大甲房產 #大甲買屋 #有巢氏房屋"
-                    if publish_mode == "⚡ 立即發佈":
-                        fb_res = post_feed_action(full_msg, photo_ids, mode="immediate")
-                        if fb_res.status_code == 200:
-                            st.success(f"✅ 「{name}」已成功立即發佈！")
-                            st.balloons()
-                            del st.session_state['master_ai_msg']
-                        else:
-                            st.error(f"❌ 貼文失敗：{fb_res.json().get('error', {}).get('message')}")
-                    elif publish_mode == "🕒 預約排程":
-                        tw_tz = pytz.timezone('Asia/Taipei')
-                        first_dt = tw_tz.localize(datetime.combine(sc_date, sc_time))
-                        success_count = 0
-                        for w in range(repeat_weeks):
-                            future_dt = first_dt + timedelta(days=7*w)
-                            unix_time = int(future_dt.timestamp())
-                            fb_res = post_feed_action(full_msg, photo_ids, mode="scheduled", unix_timestamp=unix_time)
-                            if fb_res.status_code == 200:
-                                success_count += 1
-                                st.write(f"✅ 已排程：{future_dt.strftime('%Y-%m-%d %H:%M')}")
-                        if success_count > 0:
-                            st.success(f"🎉 成功建立 {success_count} 篇排程貼文！")
-                            st.balloons()
-                            del st.session_state['master_ai_msg']
+                    status.write("📝 正在向 Facebook 同步資訊...")
+                    full_msg = f"{final_copy}\n\n🔗 完整物件看這裡：{link}" if link else final_copy
+                    
+                    target_time = int(publish_time.timestamp()) if mode == "🕒 預約排程" else None
+                    fb_res = post_to_feed(full_msg, photo_ids, scheduled_time=target_time)
+                    
+                    if fb_res.status_code == 200:
+                        status.update(label="✅ 發佈成功！", state="complete", expanded=False)
+                        st.success(f"🎉 貼文已成功{'排程' if target_time else '發佈'}！")
+                        st.balloons()
+                    else:
+                        st.error(f"❌ 貼文失敗：{fb_res.json()}")
