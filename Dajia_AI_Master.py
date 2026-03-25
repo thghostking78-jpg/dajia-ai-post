@@ -24,7 +24,7 @@ def check_password():
     if not st.session_state["password_correct"]:
         st.warning("🔒 這是有巢氏大甲店內部專用系統，請輸入通關密語。")
         pwd = st.text_input("輸入密碼", type="password")
-        if pwd == "9988":
+        if pwd == "9988":  # 密碼已更新為 9988
             st.session_state["password_correct"] = True
             st.rerun()
         elif pwd:
@@ -42,24 +42,25 @@ FB_PAGE_ID = st.secrets.get("FB_PAGE_ID", "185076618218504")
 FB_TOKEN = st.secrets.get("FB_TOKEN", "")
 GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 
-# 如果沒有抓到金鑰，先不要設定 genai，避免卡死
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-ai_model = genai.GenerativeModel('gemini-2.5-flash')
+    # 使用你指定的最新版 2.5 flash 模型
+    ai_model = genai.GenerativeModel('gemini-2.5-flash')
 
 # ==========================================
 # 3. 智慧功能類別 
 # ==========================================
 class AISmartHelper:
     @staticmethod
-    def generate_copy(name, location, ping, price, layout, floor, age, parking, features):
+    def generate_copy(name, location, ping, land_ping, price, layout, floor, age, parking, features):
         if not GEMINI_KEY:
             return "⚠️ 系統錯誤：找不到 Gemini API 金鑰！請確認是否已在 Streamlit 後台設定 Secrets。"
             
-        # 動態組合文案條件 (有填寫的才加入)
+        # 動態組合文案條件
         details = f"物件名稱：{name}\n"
         if location: details += f"地點：{location}\n"
         if ping: details += f"建坪：{ping}\n"
+        if land_ping: details += f"地坪：{land_ping}\n"
         if price: details += f"總價：{price}\n"
         if layout: details += f"格局：{layout}\n"
         if floor: details += f"樓層：{floor}\n"
@@ -111,7 +112,7 @@ class AISmartHelper:
         return Image.alpha_composite(img, txt).convert("RGB")
 
 # ==========================================
-# 4. FB API 溝通模組
+# 4. FB API 溝通模組 (新增精準錯誤回報)
 # ==========================================
 def upload_to_fb(image_obj):
     buf = io.BytesIO()
@@ -119,7 +120,12 @@ def upload_to_fb(image_obj):
     buf.seek(0)
     url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
-    return res.json().get('id')
+    res_data = res.json()
+    
+    # 檢查是否有錯誤
+    if 'error' in res_data:
+        return None, res_data['error'].get('message', 'FB API 未知錯誤')
+    return res_data.get('id'), None
 
 def post_feed_action(message, photo_ids, mode="immediate", unix_timestamp=None):
     url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
@@ -149,12 +155,13 @@ with st.form("master_form"):
         location = st.text_input("📍 鄰近地點/商圈", placeholder="選填：近大甲車站")
         price_raw = st.text_input("💰 總價 (打數字即可)", placeholder="例如：1280")
         ping_raw = st.text_input("📐 建坪 (打數字即可)", placeholder="例如：35.8")
-        age_raw = st.text_input("📅 屋齡 (選填，打數字即可)", placeholder="例如：15 或 預售")
+        land_ping_raw = st.text_input("🌲 地坪 (打數字即可)", placeholder="例如：25.5")
         
     with col2:
         st.markdown("##### 📏 規格細節")
         layout_raw = st.text_input("🚪 格局 (打3個數字)", placeholder="例如：322")
         floor_raw = st.text_input("🏢 樓層 (選填，打X/Y或數字)", placeholder="例如：5/12 或 4")
+        age_raw = st.text_input("📅 屋齡 (選填，打數字即可)", placeholder="例如：15 或 預售")
         parking_raw = st.text_input("🚗 車位 (選填)", placeholder="例如：平面、機械、無")
         features = st.text_area("✨ 物件特色 (選填)", placeholder="採光佳、近學區、免整理...", height=68)
         
@@ -174,9 +181,10 @@ with st.form("master_form"):
 
     gen_btn = st.form_submit_button("🤖 第一步：產生 AI 專業文案")
 
-# --- 處理輸入防呆轉換 (有填寫才轉換，沒填就留白) ---
+# --- 處理輸入防呆轉換 ---
 display_price = f"{price_raw} 萬" if price_raw.isnumeric() else price_raw
 display_ping = f"{ping_raw} 坪" if ping_raw.replace('.', '', 1).isdigit() else ping_raw
+display_land_ping = f"{land_ping_raw} 坪" if land_ping_raw.replace('.', '', 1).isdigit() else land_ping_raw
 display_age = f"{age_raw} 年" if age_raw.isnumeric() else age_raw
 display_parking = parking_raw
 
@@ -195,7 +203,7 @@ elif floor_raw.isnumeric():
 if gen_btn:
     with st.spinner("AI 靈感湧現中，請稍候 3~5 秒..."):
         st.session_state['master_ai_msg'] = AISmartHelper.generate_copy(
-            name, location, display_ping, display_price, display_layout, display_floor, display_age, display_parking, features
+            name, location, display_ping, display_land_ping, display_price, display_layout, display_floor, display_age, display_parking, features
         )
 
 if 'master_ai_msg' in st.session_state:
@@ -219,15 +227,23 @@ if 'master_ai_msg' in st.session_state:
                     st.error("❌ 依 FB 規定，排程時間必須至少是「現在的 10 分鐘之後」，請微調時間。")
                     st.stop()
             
-            with st.spinner("正在為照片上浮水印並送出發佈指令..."):
+            with st.spinner("正在處理照片並上傳至 Facebook..."):
                 photo_ids = []
+                has_upload_error = False
+                
                 for uploaded_file in uploaded_files:
                     img_processed = AISmartHelper.add_watermark(uploaded_file.read())
-                    pid = upload_to_fb(img_processed)
+                    pid, err_msg = upload_to_fb(img_processed)
+                    
                     if pid: 
                         photo_ids.append(pid)
+                    else:
+                        st.error(f"❌ 照片上傳失敗，FB 系統回報：{err_msg}")
+                        has_upload_error = True
+                        break # 如果有錯誤就停止上傳其他照片
                 
-                if photo_ids:
+                # 只有在照片全部成功上傳的情況下，才送出貼文
+                if photo_ids and not has_upload_error:
                     full_msg = f"{final_msg}\n\n🔗 了解更多詳情：{link}\n#大甲房產 #大甲買屋 #有巢氏房屋"
                     
                     if publish_mode == "⚡ 立即發佈":
@@ -237,7 +253,7 @@ if 'master_ai_msg' in st.session_state:
                             st.balloons()
                             del st.session_state['master_ai_msg']
                         else:
-                            st.error(f"❌ 發佈失敗：{fb_res.json()}")
+                            st.error(f"❌ 貼文發佈失敗，FB 系統回報：{fb_res.json().get('error', {}).get('message', '未知錯誤')}")
                     
                     elif publish_mode == "🕒 預約排程":
                         success_count = 0
@@ -250,7 +266,8 @@ if 'master_ai_msg' in st.session_state:
                                 success_count += 1
                                 st.write(f"✅ 已排程：{future_dt.strftime('%Y-%m-%d %H:%M')}")
                             else:
-                                st.error(f"❌ {future_dt.strftime('%Y-%m-%d')} 排程失敗：{fb_res.json()}")
+                                err_msg = fb_res.json().get('error', {}).get('message', '未知錯誤')
+                                st.error(f"❌ {future_dt.strftime('%Y-%m-%d')} 排程失敗：{err_msg}")
                         
                         if success_count > 0:
                             st.success(f"🎉 成功建立 {success_count} 篇排程貼文！")
