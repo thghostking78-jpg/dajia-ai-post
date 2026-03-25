@@ -19,13 +19,14 @@ GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+    # 🚀 升級點：切換至最新一代更聰明、更快速的 gemini-2.5-flash 模型
+    ai_model = genai.GenerativeModel('gemini-2.5-flash')
 
-# 🎯 升級點 1：設定台灣時區基準
+# 設定台灣時區基準
 tw_tz = pytz.timezone('Asia/Taipei')
 
 # ==========================================
-# 1. 安全檢查 (🎯 升級點 2：修正密碼漏洞)
+# 1. 安全檢查 (還原密碼 9988 設定)
 # ==========================================
 def check_password():
     if "password_correct" not in st.session_state:
@@ -34,13 +35,12 @@ def check_password():
         st.warning("🔒 有巢氏大甲店內部專用系統")
         pwd = st.text_input("輸入通關密語", type="password")
         
-        # 嚴格要求 Secrets 必須有值，拔除預設的 9988 後門
-        sys_pwd = st.secrets.get("SYSTEM_PWD")
-        if pwd and sys_pwd and pwd == sys_pwd:
+        # 🔑 依要求改回：若沒有設定環境變數，預設通關密語為 9988
+        if pwd == st.secrets.get("SYSTEM_PWD", "9988"):
             st.session_state["password_correct"] = True
             st.rerun()
         elif pwd:
-            st.error("密碼錯誤，或系統環境變數未正確設定！")
+            st.error("密碼錯誤！")
         return False
     return True
 
@@ -84,7 +84,7 @@ class AISmartHelper:
         請直接給出文案內容，不要有任何前言或碎念。
         """
         try:
-            # 🎯 升級點 3：放寬 AI 審查機制，避免正常的房地產廣告詞（如投資、急售）被誤判攔截
+            # 放寬 AI 審查機制，避免正常的房地產廣告詞被攔截
             safety_settings = {
                 HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
                 HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
@@ -102,7 +102,6 @@ class AISmartHelper:
         draw = ImageDraw.Draw(txt)
         w, h = img.size
         try:
-            # 💡 提醒：務必確保 NotoSansTC-Regular.ttf 在你的 GitHub 資料夾內
             font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 18))
         except:
             font = ImageFont.load_default()
@@ -145,7 +144,7 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
 st.title("🚀 大甲房產 AI 雲端無人機 Pro")
 st.caption("自動化文案、浮水印、多平台排程管理系統")
 
-# 🎯 升級點 4：初始化 Session State 暫存區 (保護上傳的照片不消失)
+# 初始化 Session State 暫存區
 if 'uploaded_files_data' not in st.session_state:
     st.session_state['uploaded_files_data'] = []
 if 'current_copy' not in st.session_state:
@@ -179,21 +178,18 @@ with st.form("pro_master_form"):
         
         mode = st.radio("發佈模式", ["⚡ 立即發佈", "🕒 預約排程"], horizontal=True)
         
-        # 使用台灣時間作為預設
         now_tw = datetime.now(tw_tz)
         publish_time = now_tw + timedelta(minutes=30)
         
         if mode == "🕒 預約排程":
             d = st.date_input("排程日期", now_tw.date())
             t = st.time_input("排程時間", now_tw.time())
-            # 🎯 升級點 1：將組合好的時間強制賦予台灣時區
             publish_time = tw_tz.localize(datetime.combine(d, t))
 
     gen_btn = st.form_submit_button("🤖 生成 AI 專業文案")
 
 # --- 邏輯處理 ---
 if gen_btn:
-    # 將照片的二進位資料存入記憶體，跳脫 Form 重整的限制
     if uploaded_files:
         st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
     else:
@@ -206,7 +202,6 @@ if gen_btn:
     }
     with st.spinner("AI 正在分析大甲行情並撰寫文中..."):
         st.session_state['current_copy'] = AISmartHelper.generate_copy(data_payload, style=copy_style)
-        # 暫存排程選項，供發佈階段讀取
         st.session_state['publish_mode'] = mode
         st.session_state['publish_time'] = publish_time
         st.session_state['publish_link'] = link
@@ -216,11 +211,9 @@ if st.session_state['current_copy']:
     st.markdown("---")
     final_copy = st.text_area("📝 文案確認/修改", value=st.session_state['current_copy'], height=300)
     
-    # 🎯 升級點 5：加入重置按鈕，方便發佈下一筆
     col1, col2 = st.columns([1, 4])
     with col1:
         if st.button("🗑️ 清除重來 (發佈下一筆)"):
-            # 清除狀態並重整頁面
             st.session_state['uploaded_files_data'] = []
             st.session_state['current_copy'] = ""
             st.rerun()
@@ -234,7 +227,6 @@ if st.session_state['current_copy']:
                     photo_ids = []
                     files_data = st.session_state['uploaded_files_data']
                     
-                    # 1. 處理照片
                     status.write("🖼️ 正在處理浮水印與上傳照片...")
                     progress_bar = st.progress(0)
                     
@@ -247,7 +239,6 @@ if st.session_state['current_copy']:
                             st.error(f"第 {idx+1} 張上傳失敗: {err}")
                         progress_bar.progress((idx + 1) / len(files_data))
                     
-                    # 2. 發佈貼文
                     if photo_ids:
                         status.write("📝 正在向 Facebook 同步資訊...")
                         p_link = st.session_state.get('publish_link', '')
@@ -256,7 +247,6 @@ if st.session_state['current_copy']:
                         p_mode = st.session_state.get('publish_mode', '⚡ 立即發佈')
                         p_time = st.session_state.get('publish_time')
                         
-                        # FB API 需要的是 Unix Timestamp 格式
                         target_time = int(p_time.timestamp()) if p_mode == "🕒 預約排程" and p_time else None
                         
                         fb_res = post_to_feed(full_msg, photo_ids, scheduled_time=target_time)
