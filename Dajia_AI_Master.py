@@ -6,6 +6,7 @@ import pytz
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont
 import google.generativeai as genai
+from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # ==========================================
 # 0. 頁面與核心設定
@@ -18,11 +19,13 @@ GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    # 建議使用穩定版 1.5-flash
     ai_model = genai.GenerativeModel('gemini-1.5-flash')
 
+# 🎯 升級點 1：設定台灣時區基準
+tw_tz = pytz.timezone('Asia/Taipei')
+
 # ==========================================
-# 1. 安全檢查 (密碼建議存在 Secrets)
+# 1. 安全檢查 (🎯 升級點 2：修正密碼漏洞)
 # ==========================================
 def check_password():
     if "password_correct" not in st.session_state:
@@ -30,9 +33,14 @@ def check_password():
     if not st.session_state["password_correct"]:
         st.warning("🔒 有巢氏大甲店內部專用系統")
         pwd = st.text_input("輸入通關密語", type="password")
-        if pwd == st.secrets.get("SYSTEM_PWD", "9988"):
+        
+        # 嚴格要求 Secrets 必須有值，拔除預設的 9988 後門
+        sys_pwd = st.secrets.get("SYSTEM_PWD")
+        if pwd and sys_pwd and pwd == sys_pwd:
             st.session_state["password_correct"] = True
             st.rerun()
+        elif pwd:
+            st.error("密碼錯誤，或系統環境變數未正確設定！")
         return False
     return True
 
@@ -47,7 +55,6 @@ class AISmartHelper:
     def generate_copy(data_dict, style="在地專業"):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
         
-        # 建立詳細資訊字串
         details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
         
         style_prompts = {
@@ -77,7 +84,14 @@ class AISmartHelper:
         請直接給出文案內容，不要有任何前言或碎念。
         """
         try:
-            return ai_model.generate_content(prompt).text
+            # 🎯 升級點 3：放寬 AI 審查機制，避免正常的房地產廣告詞（如投資、急售）被誤判攔截
+            safety_settings = {
+                HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_HATE_SPEECH: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_SEXUALLY_EXPLICIT: HarmBlockThreshold.BLOCK_NONE,
+                HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
+            }
+            return ai_model.generate_content(prompt, safety_settings=safety_settings).text
         except Exception as e:
             return f"AI 生成失敗：{e}"
 
@@ -88,7 +102,7 @@ class AISmartHelper:
         draw = ImageDraw.Draw(txt)
         w, h = img.size
         try:
-            # 嘗試讀取字體，若失敗則用預設
+            # 💡 提醒：務必確保 NotoSansTC-Regular.ttf 在你的 GitHub 資料夾內
             font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 18))
         except:
             font = ImageFont.load_default()
@@ -96,7 +110,6 @@ class AISmartHelper:
         bbox = draw.textbbox((0, 0), text, font=font)
         tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
         
-        # 右下角留邊
         margin = int(w * 0.03)
         draw.text((w - tw - margin + 2, h - th - margin + 2), text, font=font, fill=(0, 0, 0, 150))
         draw.text((w - tw - margin, h - th - margin), text, font=font, fill=(255, 255, 255, 200))
@@ -127,10 +140,16 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
     return requests.post(url, data=payload)
 
 # ==========================================
-# 4. 主介面 UI
+# 4. 主介面 UI 與狀態管理
 # ==========================================
 st.title("🚀 大甲房產 AI 雲端無人機 Pro")
 st.caption("自動化文案、浮水印、多平台排程管理系統")
+
+# 🎯 升級點 4：初始化 Session State 暫存區 (保護上傳的照片不消失)
+if 'uploaded_files_data' not in st.session_state:
+    st.session_state['uploaded_files_data'] = []
+if 'current_copy' not in st.session_state:
+    st.session_state['current_copy'] = ""
 
 with st.form("pro_master_form"):
     m_col1, m_col2, m_col3 = st.columns(3)
@@ -141,7 +160,6 @@ with st.form("pro_master_form"):
         price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
         ping = st.number_input("📐 建坪 (坪)", min_value=0.0, step=0.1, value=45.0)
         land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
-        # 自動計算單價
         unit_price = round(price / ping, 1) if ping > 0 else 0
         st.info(f"💡 自動計算單價：{unit_price} 萬/坪")
 
@@ -160,16 +178,27 @@ with st.form("pro_master_form"):
         uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
         
         mode = st.radio("發佈模式", ["⚡ 立即發佈", "🕒 預約排程"], horizontal=True)
-        publish_time = datetime.now() + timedelta(minutes=30)
+        
+        # 使用台灣時間作為預設
+        now_tw = datetime.now(tw_tz)
+        publish_time = now_tw + timedelta(minutes=30)
+        
         if mode == "🕒 預約排程":
-            d = st.date_input("排程日期", datetime.now())
-            t = st.time_input("排程時間", datetime.now().time())
-            publish_time = datetime.combine(d, t)
+            d = st.date_input("排程日期", now_tw.date())
+            t = st.time_input("排程時間", now_tw.time())
+            # 🎯 升級點 1：將組合好的時間強制賦予台灣時區
+            publish_time = tw_tz.localize(datetime.combine(d, t))
 
     gen_btn = st.form_submit_button("🤖 生成 AI 專業文案")
 
 # --- 邏輯處理 ---
 if gen_btn:
+    # 將照片的二進位資料存入記憶體，跳脫 Form 重整的限制
+    if uploaded_files:
+        st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
+    else:
+        st.session_state['uploaded_files_data'] = []
+        
     data_payload = {
         "物件名稱": name, "總價": f"{price}萬", "單價": f"{unit_price}萬/坪",
         "建坪": f"{ping}坪", "地坪": f"{land_ping}坪", "格局": layout,
@@ -177,42 +206,64 @@ if gen_btn:
     }
     with st.spinner("AI 正在分析大甲行情並撰寫文中..."):
         st.session_state['current_copy'] = AISmartHelper.generate_copy(data_payload, style=copy_style)
+        # 暫存排程選項，供發佈階段讀取
+        st.session_state['publish_mode'] = mode
+        st.session_state['publish_time'] = publish_time
+        st.session_state['publish_link'] = link
 
 # --- 第二步：確認與發佈 ---
-if 'current_copy' in st.session_state:
+if st.session_state['current_copy']:
     st.markdown("---")
     final_copy = st.text_area("📝 文案確認/修改", value=st.session_state['current_copy'], height=300)
     
-    if st.button("🚀 確認發佈至 Facebook 粉絲專頁", type="primary"):
-        if not uploaded_files:
-            st.error("❌ 至少要有一張照片才能發佈喔！")
-        else:
-            with st.status("正在執行自動發佈流程...", expanded=True) as status:
-                photo_ids = []
-                # 1. 處理照片
-                status.write("🖼️ 正在處理浮水印與上傳照片...")
-                progress_bar = st.progress(0)
-                
-                for idx, file in enumerate(uploaded_files):
-                    img = AISmartHelper.add_watermark(file.getvalue())
-                    pid, err = upload_photo_to_fb(img)
-                    if pid:
-                        photo_ids.append(pid)
-                    else:
-                        st.error(f"第 {idx+1} 張上傳失敗: {err}")
-                    progress_bar.progress((idx + 1) / len(uploaded_files))
-                
-                # 2. 發佈貼文
-                if photo_ids:
-                    status.write("📝 正在向 Facebook 同步資訊...")
-                    full_msg = f"{final_copy}\n\n🔗 完整物件看這裡：{link}" if link else final_copy
+    # 🎯 升級點 5：加入重置按鈕，方便發佈下一筆
+    col1, col2 = st.columns([1, 4])
+    with col1:
+        if st.button("🗑️ 清除重來 (發佈下一筆)"):
+            # 清除狀態並重整頁面
+            st.session_state['uploaded_files_data'] = []
+            st.session_state['current_copy'] = ""
+            st.rerun()
+            
+    with col2:
+        if st.button("🚀 確認發佈至 Facebook 粉絲專頁", type="primary"):
+            if not st.session_state['uploaded_files_data']:
+                st.error("❌ 至少要有一張照片才能發佈喔！（請重新上傳並點擊上方生成按鈕）")
+            else:
+                with st.status("正在執行自動發佈流程...", expanded=True) as status:
+                    photo_ids = []
+                    files_data = st.session_state['uploaded_files_data']
                     
-                    target_time = int(publish_time.timestamp()) if mode == "🕒 預約排程" else None
-                    fb_res = post_to_feed(full_msg, photo_ids, scheduled_time=target_time)
+                    # 1. 處理照片
+                    status.write("🖼️ 正在處理浮水印與上傳照片...")
+                    progress_bar = st.progress(0)
                     
-                    if fb_res.status_code == 200:
-                        status.update(label="✅ 發佈成功！", state="complete", expanded=False)
-                        st.success(f"🎉 貼文已成功{'排程' if target_time else '發佈'}！")
-                        st.balloons()
-                    else:
-                        st.error(f"❌ 貼文失敗：{fb_res.json()}")
+                    for idx, file_bytes in enumerate(files_data):
+                        img = AISmartHelper.add_watermark(file_bytes)
+                        pid, err = upload_photo_to_fb(img)
+                        if pid:
+                            photo_ids.append(pid)
+                        else:
+                            st.error(f"第 {idx+1} 張上傳失敗: {err}")
+                        progress_bar.progress((idx + 1) / len(files_data))
+                    
+                    # 2. 發佈貼文
+                    if photo_ids:
+                        status.write("📝 正在向 Facebook 同步資訊...")
+                        p_link = st.session_state.get('publish_link', '')
+                        full_msg = f"{final_copy}\n\n🔗 完整物件看這裡：{p_link}" if p_link else final_copy
+                        
+                        p_mode = st.session_state.get('publish_mode', '⚡ 立即發佈')
+                        p_time = st.session_state.get('publish_time')
+                        
+                        # FB API 需要的是 Unix Timestamp 格式
+                        target_time = int(p_time.timestamp()) if p_mode == "🕒 預約排程" and p_time else None
+                        
+                        fb_res = post_to_feed(full_msg, photo_ids, scheduled_time=target_time)
+                        
+                        if fb_res.status_code == 200:
+                            status.update(label="✅ 發佈成功！", state="complete", expanded=False)
+                            st.success(f"🎉 貼文已成功{'排程' if target_time else '發佈'}！")
+                            st.balloons()
+                        else:
+                            st.error(f"❌ 貼文失敗：{fb_res.json()}")
