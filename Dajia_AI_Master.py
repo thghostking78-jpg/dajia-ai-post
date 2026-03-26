@@ -9,9 +9,19 @@ import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
 # ==========================================
-# 0. 頁面與核心設定
+# 0. 頁面與核心設定 (修改 App 名稱與圖標)
 # ==========================================
-st.set_page_config(page_title="有巢氏大甲 AI 控盤 Master Pro", page_icon="🏠", layout="wide")
+# 💡 💡 💡 核心修改點：這裡設定手機桌面 App 名稱和圖標 💡 💡 💡
+# 你需要將下方的 'YOUR_PUBLIC_LOGO_URL' 替換為你的 Logo 圖片的公開網址。
+# 例如：'https://raw.githubusercontent.com/username/repo/master/logo.png'
+# 如果不提供，將默認使用一個通用的房地產圖標。
+YOUR_PUBLIC_LOGO_URL = 'YOUR_PUBLIC_LOGO_URL' # 👈👈👈 替換這裡 👈👈👈
+
+st.set_page_config(
+    page_title="發文小幫手",       # 👈👈👈 這是你下載到桌面的預設 App 名稱 👈👈👈
+    page_icon=YOUR_PUBLIC_LOGO_URL, # 👈👈👈 這是你在桌面看到的 App 圖標 👈👈👈
+    layout="wide"
+)
 
 FB_PAGE_ID = st.secrets.get("FB_PAGE_ID", "185076618218504")
 FB_TOKEN = st.secrets.get("FB_TOKEN", "")
@@ -48,7 +58,7 @@ if not check_password():
     st.stop()
 
 # ==========================================
-# 2. 智慧功能類別
+# 2. 智慧功能類別 (新增精簡風格與 Prompt 優化)
 # ==========================================
 class AISmartHelper:
     @staticmethod
@@ -57,29 +67,37 @@ class AISmartHelper:
         
         details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
         
+        # 💡 💡 💡 核心修改點：在 Prompt 中定義「精簡快訊」的風格 💡 💡 💡
         style_prompts = {
             "在地專業": "強調大甲在地地段潛力、投資報酬率與專業行情分析。",
             "溫馨感性": "強調成家夢想、空間給予家人的溫度、大甲生活圈的便利與人情味。",
-            "限時急售": "營造物件稀有性、超值價格、手刀預約的急迫感。"
+            "限時急售": "營造物件稀有性、超值價格、手刀預約的急迫感。",
+            "精簡快訊": "極簡風格，只列出標題、總價、坪數與一句最有力的特色，適合快速滑過的讀者。"
         }
         
         prompt = f"""
         你是一位台中大甲區的房仲行銷專家，目前在『有巢氏房屋大甲加盟店』服務。
-        請根據以下物件資訊撰寫一份 FB 貼文。
+        請根據以下物件資訊撰寫一份精簡、吸睛的 FB 貼文。
         
         【文案風格】: {style_prompts.get(style)}
         【物件資訊】:
         {details}
         
+        【精簡化要求】:
+        1. 標題必須包含物件名稱與總價，確保客人在沒點開「查看更多」前就能看到核心價值。
+        2. 特色：精選 3 個最重要的優點，用短句條列，不要寫長篇大論。
+        3. 規格：只保留總價、地坪、格局，並排顯示以節省空間。
+        4. 若選「精簡快訊」，總字數控制在 100 字內，用 3 個 Bullet points 結案。
+
         【格式要求】:
-        1. 標題要吸睛 (包含重點特色)。
-        2. 使用適當的 Emoji 增加閱讀舒適度。
-        3. 內容需包含物件規格，並轉化為買方看得懂的優點。
-        4. 結尾固定附上：
-           🏠 **有巢氏房屋大甲加盟店**
-           📞 **服務專線：04-26888050**
-           📍 **店址：台中市大甲區文武路99號**
-        5. 標籤：#大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產
+        - 標題要吸睛。
+        - 使用適當的 Emoji 增加閱讀舒適度。
+        - 內容需包含物件規格，並轉化為買方看得懂的優點。
+        - 結尾固定附上：
+          🏠 **有巢氏台中大甲店 (孔子廟對面)**
+          📞 **04-26888050**
+          📍 **大甲區文武路99號**
+        - 標籤：#大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產 #孔子廟
         
         請直接給出文案內容，不要有任何前言或碎念。
         """
@@ -102,6 +120,8 @@ class AISmartHelper:
         draw = ImageDraw.Draw(txt)
         w, h = img.size
         try:
+            # 你可以選擇將字體文件也上傳到你的 GitHub，然後使用網址載入。
+            # 這裡暫時保留本地加載字體的方式。
             font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 18))
         except:
             font = ImageFont.load_default()
@@ -139,10 +159,9 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
     return requests.post(url, data=payload)
 
 # ==========================================
+# 4. 主介面 UI 與狀態管理 (新增字數統計與提示)
 # ==========================================
-# 4. 主介面 UI 與狀態管理
-# ==========================================
-st.title("🚀 大甲房產 AI 雲端無人機 Pro")
+st.title("🚀 發文小幫手 - 大甲房產 AI 雲端 Master Pro")
 st.caption("自動化文案、浮水印、多平台排程管理系統")
 
 # 初始化 Session State 暫存區
@@ -180,7 +199,8 @@ with tab1:
 
         with m_col3:
             st.subheader("📣 行銷設定")
-            copy_style = st.selectbox("🎨 文案語氣", ["在地專業", "溫馨感性", "限時急售"])
+            # 💡 💡 💡 核心修改點：在下拉選單中加入「精簡快訊」 💡 💡 💡
+            copy_style = st.selectbox("🎨 文案語氣", ["在地專業", "溫馨感性", "限時急售", "精簡快訊"])
             link = st.text_input("🔗 詳情連結", placeholder="官網物件網址")
             uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
             
@@ -219,6 +239,14 @@ with tab1:
         st.markdown("---")
         final_copy = st.text_area("📝 文案確認/修改", value=st.session_state['current_copy'], height=300)
         
+        # 💡 💡 💡 核心修改點：加入字數統計與提示 💡 💡 💡
+        len_copy = len(final_copy)
+        st.write(f"當前文案字數：{len_copy} 字")
+        if len_copy > 200 and copy_style != '精簡快訊':
+            st.warning("⚠️ 溫馨提醒：文案稍微偏長，建議精簡特色描述，確保手機閱讀感佳！")
+        if len_copy > 100 and copy_style == '精簡快訊':
+            st.warning("⚠️ 溫馨提醒：已選「精簡快訊」，但字數仍稍多，建議進一步手動精簡！")
+
         col1, col2 = st.columns([1, 4])
         with col1:
             if st.button("🗑️ 清除重來 (發佈下一筆)"):
@@ -320,4 +348,3 @@ with tab2:
                         st.success("✅ 數據抓取完成！")
                 else:
                     st.error(f"❌ 抓取失敗：{res.json()}")
-
