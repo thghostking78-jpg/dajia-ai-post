@@ -12,7 +12,7 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 # ==========================================
 # 0. 頁面與核心設定
 # ==========================================
-YOUR_PUBLIC_LOGO_URL = 'https://raw.githubusercontent.com/thghostking78-jpg/dajia-ai-post/f7f51525f2627471139e7c9245a7f190519046b2/Gemini_Generated_Image_lrpfxalrpfxalrpf.png' # 可替換為你的 Logo 網址
+YOUR_PUBLIC_LOGO_URL = 'https://raw.githubusercontent.com/your-repo/logo.png' # 可替換為你的 Logo 網址
 
 st.set_page_config(page_title="大甲房產發文小幫手", page_icon="🏠", layout="wide")
 
@@ -54,6 +54,8 @@ class AISmartHelper:
     @staticmethod
     def generate_copy(data_dict, style="精簡快訊"):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
+        
+        # 將資料轉換成文字，過濾掉空的欄位
         details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
         
         # 🌟 優化：加強風格差異化與視覺吸引力
@@ -64,6 +66,9 @@ class AISmartHelper:
             "精簡快訊": "【直擊痛點視角】極簡風格，不廢話。直接列出買方最在意的：標題、總價、坪數與『一句最強大且誘人的特色』。適合快速滑 IG/FB 的讀者，總字數嚴格控制在 100 字內。使用 ✅ 條列。"
         }
         
+        # 判斷是否有網址，有則加入呼籲文字
+        link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
+
         prompt = f"""
         你是一位台中大甲區的頂尖房仲行銷專家，目前在『有巢氏房屋大甲加盟店』服務。
         請根據以下物件資訊撰寫一份吸睛的 FB 貼文。
@@ -81,7 +86,7 @@ class AISmartHelper:
 
         【結尾格式要求】 (請原封不動放在文案最後):
         ---
-        🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
+        {link_text}🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
         📞 **賞屋專線：04-26888050**
         📍 **大甲區文武路99號**
         #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產 #文昌祠
@@ -103,7 +108,6 @@ class AISmartHelper:
         txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt)
         w, h = img.size
-        # 注意：需確保有 NotoSansTC-Regular.ttf，否則中文會變方塊
         try:
             font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 18))
         except:
@@ -149,7 +153,7 @@ try:
     if YOUR_PUBLIC_LOGO_URL:
         st.image(YOUR_PUBLIC_LOGO_URL, width=150)
 except:
-    pass # 如果網址失效就略過，避免系統報錯
+    pass
 
 if 'generated_posts' not in st.session_state:
     st.session_state['generated_posts'] = []
@@ -172,8 +176,9 @@ with tab1:
         with m_col2:
             st.subheader("📏 規格細節")
             layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
-            # 🌟 將 "無" 移到第一位，這樣系統就會預設選擇它了！
             parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
+            # 🌟 新增：專屬網址欄位
+            link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="貼上 591 或官網連結")
             features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
             uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
 
@@ -202,7 +207,6 @@ with tab1:
 
         gen_btn = st.form_submit_button("🤖 啟動 AI 批量生成")
 
-    # 🌟 新增：浮水印首圖預覽 (在表單外即時顯示)
     if uploaded_files:
         st.markdown("### 🖼️ 浮水印預覽")
         try:
@@ -221,9 +225,10 @@ with tab1:
             if uploaded_files:
                 st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
             
+            # 🌟 將網址也打包進去給 AI
             data_payload = {
                 "物件名稱": name, "總價": f"{price}萬", "建坪": f"{ping}坪", "地坪": f"{land_ping}坪",
-                "格局": layout, "車位": parking, "特色": features
+                "格局": layout, "車位": parking, "專屬網址": link, "特色": features
             }
             
             st.session_state['generated_posts'] = []
@@ -239,9 +244,8 @@ with tab1:
                         target_date = now + timedelta(days=days_ahead + (i * 7))
                         target_dt = tw_tz.localize(datetime.combine(target_date.date(), post_time))
                     else:
-                        target_dt = now + timedelta(minutes=15) # 立即發佈預留緩衝
+                        target_dt = now + timedelta(minutes=15)
                     
-                    # 🌟 修復 Bug: FB 規定排程時間必須大於現在時間 10-15 分鐘以上
                     min_allowed_time = now + timedelta(minutes=15)
                     if target_dt < min_allowed_time:
                         target_dt = min_allowed_time
@@ -296,9 +300,8 @@ with tab1:
                                 status.update(label="✅ 所有貼文排程成功！", state="complete")
                                 st.success(f"🎉 成功排程了 {success_count} 篇貼文！您可以到 Facebook 粉專後台查看。")
                                 st.balloons()
-                                st.session_state['post_success'] = True # 標記發佈成功
+                                st.session_state['post_success'] = True
 
-        # 🌟 新增：發佈成功後的狀態重置按鈕
         with col_reset:
             if st.session_state.get('post_success', False):
                 if st.button("✨ 完成並建立下一筆", use_container_width=True):
@@ -314,11 +317,6 @@ with tab2:
     
     if st.button("🔄 載入最新數據"):
         with st.spinner("正在與 Facebook 連線撈取數據..."):
-            # 💡 實務上這裡會呼叫 Graph API，例如：
-            # url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/insights?metric=page_impressions,page_engaged_users&period=day&access_token={FB_TOKEN}"
-            # res = requests.get(url).json()
-            
-            # 目前先產生模擬數據供您確認畫面與圖表樣式
             dates = [(datetime.now() - timedelta(days=i)).strftime("%m-%d") for i in range(6, -1, -1)]
             mock_data = pd.DataFrame({
                 "日期": dates,
@@ -326,13 +324,11 @@ with tab2:
                 "👍 互動次數 (Engagement)": [random.randint(50, 400) for _ in range(7)]
             }).set_index("日期")
             
-            # 顯示重點指標
             met_col1, met_col2, met_col3 = st.columns(3)
             met_col1.metric("本週總觸及", f"{mock_data['👀 觸及人數 (Reach)'].sum():,}", "12% 相較上週")
             met_col2.metric("本週總互動", f"{mock_data['👍 互動次數 (Engagement)'].sum():,}", "5% 相較上週")
             met_col3.metric("目前排程中貼文", f"{schedule_weeks if 'schedule_weeks' in locals() else 0} 篇")
             
             st.markdown("---")
-            # 繪製趨勢圖
             st.line_chart(mock_data, use_container_width=True)
             st.caption("備註：此圖表目前帶入模擬數據，需開啟 FB APP 的 insights 權限後替換為真實 API。")
