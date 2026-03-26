@@ -12,7 +12,7 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 # ==========================================
 # 0. 頁面與核心設定
 # ==========================================
-YOUR_PUBLIC_LOGO_URL = 'https://raw.githubusercontent.com/your-repo/logo.png' # 可替換為你的 Logo 網址
+YOUR_PUBLIC_LOGO_URL = 'https://raw.githubusercontent.com/thghostking78-jpg/dajia-ai-post/f7f51525f2627471139e7c9245a7f190519046b2/Gemini_Generated_Image_lrpfxalrpfxalrpf.png' # 可替換為你的 Logo 網址
 
 st.set_page_config(page_title="大甲房產發文小幫手", page_icon="🏠", layout="wide")
 
