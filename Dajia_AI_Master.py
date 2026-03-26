@@ -23,7 +23,7 @@ GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
     # 確保使用目前支援最廣的 flash 模型名稱
-    ai_model = genai.GenerativeModel('gemini-1.5-flash')
+    ai_model = genai.GenerativeModel('gemini-2.5-flash')
 
 tw_tz = pytz.timezone('Asia/Taipei')
 
