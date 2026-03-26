@@ -82,7 +82,7 @@ class AISmartHelper:
         🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
         📞 **賞屋專線：04-26888050**
         📍 **大甲區文武路99號**
-        #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產
+        #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產 #文昌祠
         """
         safety_settings = {
             HarmCategory.HARM_CATEGORY_HARASSMENT: HarmBlockThreshold.BLOCK_NONE,
