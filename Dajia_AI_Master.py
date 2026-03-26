@@ -51,7 +51,7 @@ if not check_password():
 # 2. 智慧功能類別
 # ==========================================
 class AISmartHelper:
-@staticmethod
+    @staticmethod
     def generate_copy(data_dict, style="精簡快訊"):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
         
