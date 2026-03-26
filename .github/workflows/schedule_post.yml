@@ -1,30 +1,29 @@
-name: 每週一有巢氏大甲店自動發文
+name: 每天早上9點有巢氏大甲店自動發文
 
 on:
   schedule:
-    # 這是 Cron 語法。注意：GitHub 伺服器使用的是 UTC 時間。
+    # 這是 Cron 語法。GitHub 伺服器使用的是 UTC 時間（比台灣慢 8 小時）。
     # 台灣時間早上 9 點 = UTC 時間凌晨 1 點。
-    # 分 小時 日 月 星期 (星期一為 1)
-    - cron: '0 1 * * 1'
-  workflow_dispatch: # 加上這個設定，讓您可以在 GitHub 網頁上手動點擊測試
+    # 語法：分 小時 日 月 星期 (星星 * 代表每天/每個月)
+    - cron: '0 1 * * *'
+  workflow_dispatch: # 保留這個，讓你隨時可以手動按按鈕測試
 
 jobs:
   run-auto-post:
     runs-on: ubuntu-latest
     steps:
       - name: 📥 下載程式碼
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
       - name: 🐍 設定 Python 環境
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
       - name: 📦 安裝必備套件
-        # 這裡安裝 auto_post.py 需要的套件 (不需要安裝 streamlit)
         run: |
           pip install requests pytz google-generativeai
-
+          
       - name: 🚀 執行發文腳本
         env:
           FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
