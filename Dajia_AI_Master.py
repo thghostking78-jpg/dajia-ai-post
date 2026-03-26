@@ -12,6 +12,8 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 # ==========================================
 # 0. 頁面與核心設定
 # ==========================================
+YOUR_PUBLIC_LOGO_URL = 'https://raw.githubusercontent.com/your-repo/logo.png' # 可替換為你的 Logo 網址
+
 st.set_page_config(page_title="大甲房產發文小幫手", page_icon="🏠", layout="wide")
 
 FB_PAGE_ID = st.secrets.get("FB_PAGE_ID", "")
@@ -142,6 +144,13 @@ def reset_app_state():
 # ==========================================
 st.title("🚀 發文小幫手 Master Pro")
 
+# 顯示 Logo 圖片
+try:
+    if YOUR_PUBLIC_LOGO_URL:
+        st.image(YOUR_PUBLIC_LOGO_URL, width=150)
+except:
+    pass # 如果網址失效就略過，避免系統報錯
+
 if 'generated_posts' not in st.session_state:
     st.session_state['generated_posts'] = []
 if 'uploaded_files_data' not in st.session_state:
@@ -163,7 +172,8 @@ with tab1:
         with m_col2:
             st.subheader("📏 規格細節")
             layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
-            parking = st.selectbox("🚗 車位", ["自有車庫", "坡道平面", "門口停車", "無"])
+            # 🌟 將 "無" 移到第一位，這樣系統就會預設選擇它了！
+            parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
             features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
             uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
 
