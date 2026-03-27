@@ -394,143 +394,41 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 5. Tab 2: 粉專成效儀表板 (終極防爆與智慧降級版)
+# 5. Tab 2: 粉專成效儀表板 (終極除錯測試版)
 # ==========================================
 with tab2:
-    st.header("📈 粉絲專頁營運戰情室")
-    st.markdown("追蹤粉專核心粉絲成長，並嘗試抓取近期貼文互動數據。若遇 FB 權限限制，將自動降級為基本發文活躍度追蹤。")
+    st.header("📈 粉絲專頁營運戰情室 (Debug 模式)")
+    st.markdown("正在測試 Meta API 權限牆...")
     
     if st.button("🔄 撈取最新營運數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
-            with st.spinner("正在與 Facebook 連線，解析近期營運數據中..."):
-                api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
+            with st.spinner("連線測試中..."):
+                # 💡 建議將 v25.0 降回你截圖中顯示的穩定版本，例如 v20.0 或 v21.0
+                api_base = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}" 
                 
                 try:
-                    # --- 1. 獲取粉專總粉絲數與追蹤數 (基本權限，必過) ---
-                    page_params = {'fields': 'fan_count,followers_count,name', 'access_token': FB_TOKEN}
-                    page_data = requests.get(api_base, params=page_params).json()
+                    # --- 先測試最基礎的互動：只抓「讚數 (reactions)」 ---
+                    # 移除了 shares 和 comments 看看是不是它們在搞鬼
+                    test_url = f"{api_base}/published_posts"
+                    test_params = {
+                        'fields': 'created_time,message,reactions.summary(total_count)',
+                        'limit': 5,
+                        'access_token': FB_TOKEN
+                    }
                     
-                    if 'error' in page_data:
-                        st.error(f"❌ 無法撈取粉專資料：{page_data['error']['message']}")
+                    res = requests.get(test_url, params=test_params)
+                    data = res.json()
+                    
+                    if 'error' in data:
+                        st.error("🚨 抓到了！Meta 回傳的真實錯誤訊息如下：")
+                        # 將原始錯誤 JSON 完整印出，讓我們看清楚是哪個環節卡住
+                        st.json(data['error'])
+                        st.warning("👉 請複製上方的 JSON 錯誤訊息告訴我！")
                     else:
-                        page_name = page_data.get('name', '有巢氏台中大甲店')
-                        fan_count = page_data.get('fan_count', 0)
-                        followers_count = page_data.get('followers_count', 0)
+                        st.success("🎉 測試成功！如果看到這行，代表是『分享或留言』欄位權限卡住了。")
+                        st.json(data) # 印出成功抓到的數據
                         
-                        st.success(f"✅ 成功連線至粉專：**{page_name}**")
-                        
-                        # --- 2. 嘗試抓取近期貼文與互動數據 ---
-                        posts_url = f"{api_base}/published_posts"
-                        # 這是進階權限需求欄位
-                        posts_params_advanced = {
-                            'fields': 'created_time,message,permalink_url,reactions.summary(total_count),comments.summary(total_count),shares',
-                            'limit': 30,
-                            'access_token': FB_TOKEN
-                        }
-                        
-                        posts_res = requests.get(posts_url, params=posts_params_advanced)
-                        posts_data = posts_res.json()
-                        
-                        # 🛡️ 核心防爆機制：檢查是否遇到 #10 權限不足錯誤
-                        has_engagement_permission = True
-                        if 'error' in posts_data and 'pages_read_engagement' in posts_data['error']['message']:
-                            has_engagement_permission = False
-                            st.warning("⚠️ 偵測到目前的 FB Token 缺少 `pages_read_engagement` 權限！系統已自動降級為「僅統計發文數量」。(如需觀看互動數據，請更新 Token 權限)")
-                            
-                            # 降級抓取 (只抓發文時間，這不需要高階權限)
-                            now_tw = datetime.now(tw_tz)
-                            since_timestamp = int((now_tw - timedelta(days=7)).timestamp())
-                            fallback_params = {
-                                'fields': 'created_time',
-                                'since': since_timestamp,
-                                'access_token': FB_TOKEN
-                            }
-                            posts_data = requests.get(posts_url, params=fallback_params).json()
-
-                        # --- 3. 數據解析與介面呈現 ---
-                        posts = posts_data.get('data', [])
-                        now_tw = datetime.now(tw_tz)
-                        last_7_days_list = [(now_tw - timedelta(days=i)).strftime('%m-%d') for i in range(6, -1, -1)]
-                        post_count_dict = {d: 0 for d in last_7_days_list}
-                        
-                        if has_engagement_permission:
-                            engagement_dict = {d: 0 for d in last_7_days_list}
-                            post_ranking = []
-                            total_reactions, total_comments = 0, 0
-                            
-                            for p in posts:
-                                try:
-                                    c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                                    target_date = c_time.strftime('%m-%d')
-                                    
-                                    reactions = p.get('reactions', {}).get('summary', {}).get('total_count', 0)
-                                    comments = p.get('comments', {}).get('summary', {}).get('total_count', 0)
-                                    shares = p.get('shares', {}).get('count', 0)
-                                    total_eng = reactions + comments + shares
-                                    
-                                    total_reactions += reactions
-                                    total_comments += comments
-                                    
-                                    if target_date in last_7_days_list:
-                                        post_count_dict[target_date] += 1
-                                        engagement_dict[target_date] += total_eng
-                                        
-                                    msg_preview = p.get('message', '無文字內容')[:50].replace('\n', ' ') + "..."
-                                    post_ranking.append({
-                                        "時間": c_time.strftime('%Y-%m-%d %H:%M'), "預覽": msg_preview,
-                                        "總互動": total_eng, "讚": reactions, "留言": comments, "網址": p.get('permalink_url', '')
-                                    })
-                                except Exception: continue
-                                
-                            # 顯示完整互動指標
-                            met_col1, met_col2, met_col3, met_col4 = st.columns(4)
-                            met_col1.metric("👥 總粉絲專頁讚數", f"{int(fan_count):,}")
-                            met_col2.metric("🔔 總追蹤人數", f"{int(followers_count):,}")
-                            met_col3.metric("❤️ 近期累積按讚數", f"{total_reactions}")
-                            met_col4.metric("💬 近期累積留言數", f"{total_comments}")
-                            
-                            st.markdown("---")
-                            st.subheader("📅 近 7 天發文與互動趨勢")
-                            df_metrics = pd.DataFrame({"📝 發文篇數": pd.Series(post_count_dict), "🔥 互動總量": pd.Series(engagement_dict)}).fillna(0)
-                            st.line_chart(df_metrics["🔥 互動總量"], color="#FF4B4B")
-                            st.bar_chart(df_metrics["📝 發文篇數"], color="#1f77b4")
-                            
-                            st.markdown("---")
-                            st.subheader("🔥 近期熱門貼文排行榜 (Top 5)")
-                            top_posts = sorted(post_ranking, key=lambda x: x['總互動'], reverse=True)[:5]
-                            for idx, post in enumerate(top_posts):
-                                rank_emoji = ["🥇", "🥈", "🥉", "🏅", "🏅"][idx]
-                                col1, col2 = st.columns([4, 1])
-                                with col1:
-                                    st.markdown(f"**{rank_emoji} 第 {idx+1} 名 ({post['時間']})**")
-                                    st.info(post['預覽'])
-                                with col2:
-                                    st.metric("🔥 總互動", post['總互動'])
-                                    st.caption(f"👍 {post['讚']} | 💬 {post['留言']}")
-                                    st.markdown(f"[👉 點此查看]({post['網址']})")
-                                st.divider()
-                                
-                        else:
-                            # 降級顯示 (無互動數據)
-                            for p in posts:
-                                try:
-                                    c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                                    target_date = c_time.strftime('%m-%d')
-                                    if target_date in last_7_days_list:
-                                        post_count_dict[target_date] += 1
-                                except Exception: continue
-                                
-                            met_col1, met_col2, met_col3 = st.columns(3)
-                            met_col1.metric("👥 總粉絲專頁讚數", f"{int(fan_count):,}")
-                            met_col2.metric("🔔 總追蹤人數", f"{int(followers_count):,}")
-                            met_col3.metric("📈 近 7 天發佈貼文", f"{sum(post_count_dict.values())} 篇")
-                            
-                            st.markdown("---")
-                            st.subheader("📅 近 7 天發文趨勢")
-                            df_metrics = pd.DataFrame({"📝 發文篇數": pd.Series(post_count_dict)}).fillna(0)
-                            st.bar_chart(df_metrics["📝 發文篇數"], color="#1f77b4")
-
                 except Exception as e:
-                    st.error(f"連線失敗：{e}")
+                    st.error(f"程式連線發生未知錯誤：{e}")
