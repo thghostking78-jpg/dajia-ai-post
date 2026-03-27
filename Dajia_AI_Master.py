@@ -5,7 +5,7 @@ import io
 import pytz
 import os
 import urllib.request
-import time  # 🌟 用來讓 AI 暫停喘息，防止免費版配額爆掉
+import time
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import google.generativeai as genai
@@ -23,20 +23,20 @@ GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    ai_model = genai.GenerativeModel('gemini-2.0-flash')
 
 tw_tz = pytz.timezone('Asia/Taipei')
 
 # ==========================================
-# 1. 智慧快取層 (解決重複執行浪費額度的問題)
+# 1. 智慧快取與雙模型備援層 (解決 429 額度問題)
 # ==========================================
 
 @st.cache_data(show_spinner="AI 正在思考中...", ttl=3600)
-def get_cached_ai_response(prompt, _model, image_bytes=None):
+def get_cached_ai_response(prompt, model_name, image_bytes=None):
     """
-    處理 AI 生成的快取函數。
-    參數前的底線 (_) 代表 Streamlit 不會去檢查這個物件的變動。
+    帶有快取機制的 AI 生成函數。
+    model_name 作為快取 Key 的一部分，確保 1.5 和 2.0 的結果分開存放。
     """
+    model = genai.GenerativeModel(model_name)
     contents = [prompt]
     if image_bytes:
         try:
@@ -52,7 +52,7 @@ def get_cached_ai_response(prompt, _model, image_bytes=None):
         HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
     }
     
-    response = _model.generate_content(contents, safety_settings=safety_settings)
+    response = model.generate_content(contents, safety_settings=safety_settings)
     return response.text
 
 # ==========================================
@@ -73,19 +73,6 @@ def check_password():
         return False
     return True
 
-def check_fb_token_health():
-    """檢查 FB Token 是否過期或失效"""
-    if not FB_PAGE_ID or not FB_TOKEN:
-        return
-    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}?fields=name&access_token={FB_TOKEN}"
-    try:
-        res = requests.get(url).json()
-        if 'error' in res:
-            err_msg = res['error'].get('message', '未知錯誤')
-            st.error(f"🚨 **FB 權杖 (Token) 異常或已過期！** 貼文排程將會失敗。\n錯誤訊息: {err_msg}")
-    except Exception:
-        pass 
-
 if not check_password():
     st.stop()
 
@@ -95,10 +82,13 @@ with st.sidebar:
     if st.button("🧹 清除 AI 快取 (重新生成文案)"):
         st.cache_data.clear()
         st.success("快取已清除！")
+    st.divider()
+    st.info(f"當前時間：{datetime.now(tw_tz).strftime('%Y-%m-%d %H:%M')}")
 
 # ==========================================
 # 3. 智慧功能類別 (AI 與 影像處理)
 # ==========================================
+
 class AISmartHelper:
     @staticmethod
     def generate_copy(data_dict, style="精簡快訊", image_bytes=None):
@@ -107,11 +97,11 @@ class AISmartHelper:
         details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
         
         style_prompts = {
-            "在地專業": "【專家分析視角】語氣穩重專業、客觀。著重於大甲區的地段發展潛力、市場行情對比、投資報酬與建築工法。讓買方覺得這是一筆『精準且保值』的決策。",
-            "溫馨感性": "【說故事視角】語氣溫暖但「不廢話」。簡單點出空間帶給家人的實用性與學區/生活圈便利性，勾勒成家願景，但仍須保持房仲的專業俐落。",
-            "限時急售": "【高 CP 值視角】語氣節奏快、具說服力。強調『單價優勢』、『市場稀有度』與『錯過可惜的絕佳賣點』，用市場數據或性價比來創造急迫感。",
-            "精簡快訊": "【直擊痛點視角】極簡風格，完全不廢話。去除所有形容詞，只留下買方最在意的核心賣點，適合講求效率的投資客或快速瀏覽的讀者。",
-            "空拍視野": "【上帝視角】語氣大氣開闊。專注描述基地面寬、地形方正、聯外道路動線與周邊無遮蔽的無敵視野，特別吸引高總價、重視大地坪或農地投資的客群。"
+            "在地專業": "【專家分析視角】語氣穩重專業。著重於大甲區的地段發展潛力、市場行情對比、投資報酬與建築工法。",
+            "溫馨感性": "【說故事視角】語氣溫暖但「不廢話」。簡單點出空間帶給家人的實用性與學區/生活圈便利性。",
+            "限時急售": "【高 CP 值視角】語氣節奏快、具說服力。強調『單價優勢』、『市場稀有度』與『錯過可惜的絕佳賣點』。",
+            "精簡快訊": "【直擊痛點視角】極簡風格，完全不廢話。去除所有形容詞，只留下買方最在意的核心賣點。",
+            "空拍視野": "【上帝視角】語氣大氣開闊。專注描述基地面寬、地形方正、聯外道路動線與周邊無遮蔽的視野。"
         }
         
         link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
@@ -129,7 +119,7 @@ class AISmartHelper:
         【貼文結構嚴格要求】 (請務必依照此順序排版)：
         1. 【吸睛標題】：一行呈現，必須包含物件名稱與總價，簡潔有力。
         2. 【物件基本資料】(優先顯示！)：直接將【物件資訊】轉化為清晰的條列式重點。
-        3. 【專業分析與視覺亮點】(取代長篇大論)：依據風格用 3~5 點條列說明優勢。
+        3. 【專業分析與視覺亮點】：依據風格用 3~5 點條列說明優勢。
         4. 【動態標籤】：自動生成 2~3 個精準的 Hashtag。
         5. 【排版規範】：段落之間空行，Emoji 僅作畫龍點睛。
 
@@ -141,11 +131,20 @@ class AISmartHelper:
         #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產 #文昌祠
         """
         
+        # --- 🚀 核心雙保險備援邏輯 ---
         try:
-            # 🚀 呼叫快取生成邏輯
-            return get_cached_ai_response(prompt, ai_model, image_bytes)
+            # 優先嘗試 2.0 Flash
+            return get_cached_ai_response(prompt, "gemini-2.0-flash", image_bytes)
         except Exception as e:
-            return f"AI 生成失敗：{e}"
+            error_msg = str(e)
+            # 若發生額度錯誤 (429) 或配額問題，切換至 1.5 Flash
+            if "429" in error_msg or "quota" in error_msg.lower():
+                st.toast("⚠️ 2.0 配額已滿，自動切換至 1.5 Flash 備援...")
+                try:
+                    return get_cached_ai_response(prompt, "gemini-1.5-flash", image_bytes)
+                except Exception as e2:
+                    return f"❌ 雙模型皆生成失敗：{e2}"
+            return f"❌ AI 生成異常：{e}"
 
     @staticmethod
     def add_watermark(image_bytes, text="有巢氏台中大甲店", position_type="右下角"):
@@ -180,7 +179,7 @@ class AISmartHelper:
                 position = (margin, h - th - margin)
             elif position_type == "置中":
                 position = ((w - tw) // 2, (h - th) // 2)
-            else:
+            else: # 右下角
                 position = (w - tw - margin, h - th - margin)
             
             draw.text((position[0] + 3, position[1] + 3), text, font=font, fill=(0, 0, 0, 180))
@@ -192,8 +191,9 @@ class AISmartHelper:
             return None
 
 # ==========================================
-# 4. FB API 溝通層 (v25.0)
+# 4. FB API 溝通層
 # ==========================================
+
 def upload_photo_to_fb(image_obj):
     if not image_obj: return None, "Image processing failed"
     buf = io.BytesIO()
@@ -213,23 +213,16 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
         payload[f'attached_media[{i}]'] = f'{{"media_fbid": "{p_id}"}}'
     return requests.post(url, data=payload)
 
-def reset_app_state():
-    st.session_state['generated_posts'] = []
-    st.session_state['uploaded_files_data'] = []
-    st.rerun()
-
 # ==========================================
 # 5. 主介面 UI
 # ==========================================
+
 st.title("🚀 發文小幫手 Master Pro")
-check_fb_token_health()
 
 if 'generated_posts' not in st.session_state:
     st.session_state['generated_posts'] = []
 if 'uploaded_files_data' not in st.session_state:
     st.session_state['uploaded_files_data'] = []
-if 'watermark_pos' not in st.session_state:
-    st.session_state['watermark_pos'] = "右下角"
 
 tab1, tab2 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板"])
 
@@ -279,14 +272,13 @@ with tab1:
     if uploaded_files:
         st.markdown("---")
         st.subheader("🖼️ 浮水印預覽")
-        watermark_pos = st.radio("📍 浮水印位置", ["右下角", "左下角", "置中"], horizontal=True)
-        st.session_state['watermark_pos'] = watermark_pos
-        cols = st.columns(len(uploaded_files))
-        for idx, file in enumerate(uploaded_files):
+        watermark_pos = st.radio("📍 位置", ["右下角", "左下角", "置中"], horizontal=True)
+        cols = st.columns(min(len(uploaded_files), 4))
+        for idx, file in enumerate(uploaded_files[:4]):
             preview_img = AISmartHelper.add_watermark(file.getvalue(), position_type=watermark_pos)
             if preview_img:
                 with cols[idx]:
-                    st.image(preview_img, caption=f"預覽 {idx+1}", use_container_width=True)
+                    st.image(preview_img, use_container_width=True)
 
     st.markdown("---")
     gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
@@ -309,21 +301,15 @@ with tab1:
             first_image_bytes = st.session_state['uploaded_files_data'][0] if st.session_state['uploaded_files_data'] else None
             
             for i in range(schedule_weeks):
-                if mode == "📅 連續多週排程":
-                    target_date = start_date + timedelta(days=i * 7)
-                    target_dt = tw_tz.localize(datetime.combine(target_date, post_time))
-                else:
-                    target_dt = now + timedelta(minutes=15)
-
+                target_dt = tw_tz.localize(datetime.combine(start_date + timedelta(days=i * 7), post_time)) if mode == "📅 連續多週排程" else now + timedelta(minutes=15)
                 current_style = selected_styles[i % len(selected_styles)]
                 
-                # 🛡️ 帶有 429 防爆的生成 (此處已內建 cache)
+                # 自動帶有備援機制的生成
                 copy_text = AISmartHelper.generate_copy(data_dict=data_payload, style=current_style, image_bytes=first_image_bytes)
                 
                 st.session_state['generated_posts'].append({
                     "發文時間": target_dt, "風格": current_style, "文案": copy_text
                 })
-            
             st.success("✅ AI 生成完畢！")
 
     if st.session_state['generated_posts']:
@@ -331,36 +317,31 @@ with tab1:
         st.subheader("👀 貼文預覽與修改")
         for idx, post in enumerate(st.session_state['generated_posts']):
             with st.expander(f"第 {idx+1} 篇 ({post['風格']}) ➔ {post['發文時間'].strftime('%Y-%m-%d %H:%M')}"):
-                st.session_state['generated_posts'][idx]['文案'] = st.text_area("修改文案內容", value=post['文案'], height=250, key=f"text_{idx}")
+                st.session_state['generated_posts'][idx]['文案'] = st.text_area("修改文案", value=post['文案'], height=250, key=f"text_{idx}")
 
         if st.button("🚀 確認無誤，全部排程至 Facebook", type="primary", use_container_width=True):
             if not st.session_state['uploaded_files_data']:
                 st.error("❌ 缺少照片！")
             else:
-                with st.status("發佈中...", expanded=True) as status:
-                    status.write("🖼️ 處理照片...")
+                with st.status("發佈中...") as status:
+                    status.write("🖼️ 上傳照片並加浮水印...")
                     photo_ids = []
                     for f_bytes in st.session_state['uploaded_files_data']:
-                        img = AISmartHelper.add_watermark(f_bytes, position_type=st.session_state['watermark_pos'])
+                        img = AISmartHelper.add_watermark(f_bytes, position_type=watermark_pos)
                         pid, err = upload_photo_to_fb(img)
                         if pid: photo_ids.append(pid)
                     
                     if photo_ids:
-                        status.write("📝 提交貼文...")
-                        success_count = 0
-                        for p in st.session_state['generated_posts']:
-                            t_stamp = int(p['發文時間'].timestamp()) if mode == "📅 連續多週排程" else None
-                            if post_to_feed(p['文案'], photo_ids, scheduled_time=t_stamp).status_code == 200:
-                                success_count += 1
+                        status.write("📝 提交貼文排程...")
+                        success_count = sum(1 for p in st.session_state['generated_posts'] if post_to_feed(p['文案'], photo_ids, scheduled_time=int(p['發文時間'].timestamp()) if mode == "📅 連續多週排程" else None).status_code == 200)
                         status.update(label=f"✅ 成功排程 {success_count} 篇貼文！", state="complete")
                         st.balloons()
-                        st.session_state['post_success'] = True
 
 # ==========================================
-# 6. Tab 2: 粉專成效儀表板
+# 6. Tab 2: 粉專成效儀表板 (簡化穩定版)
 # ==========================================
 with tab2:
-    st.header("📈 粉絲專頁營運戰情室")
+    st.header("📈 粉絲專頁營運數據")
     if st.button("🔄 撈取最新營運數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
             st.error("⚠️ 缺少權限設定。")
@@ -368,19 +349,14 @@ with tab2:
             with st.spinner("解析數據中..."):
                 api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
                 try:
-                    # 1. 粉絲數
                     page_data = requests.get(api_base, params={'fields': 'fan_count,followers_count,name', 'access_token': FB_TOKEN}).json()
                     st.success(f"✅ 粉專：**{page_data.get('name')}**")
                     col1, col2 = st.columns(2)
                     col1.metric("👥 讚數", f"{page_data.get('fan_count', 0):,}")
                     col2.metric("🔔 追蹤", f"{page_data.get('followers_count', 0):,}")
                     
-                    # 2. 貼文紀錄
-                    posts_res = requests.get(f"{api_base}/published_posts", params={'fields': 'created_time,message,permalink_url', 'limit': 10, 'access_token': FB_TOKEN}).json()
-                    st.markdown("---")
-                    st.subheader("📝 近期發文紀錄")
+                    posts_res = requests.get(f"{api_base}/published_posts", params={'fields': 'created_time,message,permalink_url', 'limit': 5, 'access_token': FB_TOKEN}).json()
                     for p in posts_res.get('data', []):
-                        c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                        st.write(f"🗓️ {c_time.strftime('%Y-%m-%d %H:%M')} | {p.get('message', '無文字')[:50]}... [🔗連結]({p.get('permalink_url')})")
+                        st.write(f"🗓️ {p['created_time'][:16]} | {p.get('message', '無文字')[:50]}...")
                 except Exception as e:
                     st.error(f"連線失敗：{e}")
