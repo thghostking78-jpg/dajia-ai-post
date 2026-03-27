@@ -4,8 +4,10 @@ import requests
 import io
 import pytz
 import random
+import os
+import urllib.request
 from datetime import datetime, timedelta
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFont, ImageOps
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 
@@ -54,10 +56,8 @@ class AISmartHelper:
     def generate_copy(data_dict, style="精簡快訊"):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
         
-        # 將資料轉換成文字，過濾掉空的欄位
         details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
         
-        # 🌟 優化：加強風格的「專業感」與「條列式」限制
         style_prompts = {
             "在地專業": "【專家分析視角】語氣穩重專業、客觀。著重於大甲區的地段發展潛力、市場行情對比、投資報酬與建築工法。讓買方覺得這是一筆『精準且保值』的決策。",
             "溫馨感性": "【說故事視角】語氣溫暖但「不廢話」。簡單點出空間帶給家人的實用性與學區/生活圈便利性，勾勒成家願景，但仍須保持房仲的專業俐落。",
@@ -65,10 +65,8 @@ class AISmartHelper:
             "精簡快訊": "【直擊痛點視角】極簡風格，完全不廢話。去除所有形容詞，只留下買方最在意的核心賣點，適合講求效率的投資客或快速瀏覽的讀者。"
         }
         
-        # 判斷是否有網址，有則加入呼籲文字
         link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
 
-        # 🌟 核心修改：嚴格限制 AI 的輸出結構，強制先給資料、再給條列式亮點
         prompt = f"""
         你是一位台中大甲區的頂尖房仲行銷專家，目前在『有巢氏房屋大甲加盟店』服務。
         請根據以下物件資訊，撰寫一份具備「高專業度」、且「不拖泥帶水」的 FB 貼文。
@@ -105,37 +103,58 @@ class AISmartHelper:
 
     @staticmethod
     def add_watermark(image_bytes, text="有巢氏大甲店"):
-        img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
-        txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
-        draw = ImageDraw.Draw(txt)
-        w, h = img.size
-        try:
-            # 系統會在這裡尋找同資料夾下的字體檔
-            font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 18))
-        except Exception as e:
-            # 若找不到字體檔，給予明確警告
-            st.error("⚠️ 系統找不到 NotoSansTC-Regular.ttf 字體檔，請確認檔案已放入資料夾！")
-            font = ImageFont.load_default()
-            
-        bbox = draw.textbbox((0, 0), text, font=font)
-        tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
-        margin = int(w * 0.03)
+        # 雲端自動下載字體機制 (避開 GitHub 25MB 限制)
+        font_filename = "NotoSansCJKtc-Regular.otf"
+        if not os.path.exists(font_filename):
+            try:
+                font_url = "https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf"
+                urllib.request.urlretrieve(font_url, font_filename)
+            except Exception:
+                pass 
         
-        # 加上陰影讓白字在淺色背景也能看清楚
-        draw.text((w - tw - margin + 2, h - th - margin + 2), text, font=font, fill=(0, 0, 0, 150))
-        draw.text((w - tw - margin, h - th - margin), text, font=font, fill=(255, 255, 255, 200))
-        return Image.alpha_composite(img, txt).convert("RGB")
+        try:
+            img = Image.open(io.BytesIO(image_bytes))
+            # 自動轉正手機照片
+            img = ImageOps.exif_transpose(img)
+            
+            # 智慧縮圖保護記憶體
+            max_size = (2048, 2048)
+            img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            img = img.convert("RGBA")
+            txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
+            draw = ImageDraw.Draw(txt)
+            w, h = img.size
+            
+            try:
+                font = ImageFont.truetype(font_filename, int(h / 18))
+            except Exception:
+                font = ImageFont.load_default()
+                st.warning("⚠️ 載入中文字體失敗，暫時使用預設字體（可能會出現方塊）。")
+                
+            bbox = draw.textbbox((0, 0), text, font=font)
+            tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+            margin = int(w * 0.03)
+            
+            draw.text((w - tw - margin + 2, h - th - margin + 2), text, font=font, fill=(0, 0, 0, 150))
+            draw.text((w - tw - margin, h - th - margin), text, font=font, fill=(255, 255, 255, 200))
+            return Image.alpha_composite(img, txt).convert("RGB")
+            
+        except Exception as e:
+            st.error(f"照片處理失敗：{e}")
+            return None
 
 def upload_photo_to_fb(image_obj):
+    if not image_obj: return None, "Image processing failed"
     buf = io.BytesIO()
     image_obj.save(buf, format='JPEG', quality=90)
     buf.seek(0)
-    url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/photos"
+    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/photos"
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
     return res.json().get('id'), res.json().get('error')
 
 def post_to_feed(message, photo_ids, scheduled_time=None):
-    url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/feed"
+    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/feed"
     payload = {'message': message, 'access_token': FB_TOKEN}
     if scheduled_time:
         payload['published'] = 'false'
@@ -144,7 +163,6 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
         payload[f'attached_media[{i}]'] = f'{{"media_fbid": "{p_id}"}}'
     return requests.post(url, data=payload)
 
-# 狀態重置函數
 def reset_app_state():
     st.session_state['generated_posts'] = []
     st.session_state['uploaded_files_data'] = []
@@ -177,7 +195,6 @@ with tab1:
             st.subheader("📏 規格細節")
             layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
             parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
-            # 🌟 新增：專屬網址欄位
             link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="貼上 591 或官網連結")
             features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
             uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
@@ -194,15 +211,25 @@ with tab1:
             
             schedule_weeks = 1
             post_time = datetime.now(tw_tz).time()
-            target_weekday = "一"
+            start_date = datetime.now(tw_tz).date()
             
             if mode == "📅 連續多週排程":
+                # 🌟 生成 07:00 到 21:00 每半小時的選項
+                time_options = []
+                for h in range(7, 22):
+                    time_options.append(f"{h:02d}:00")
+                    if h != 21: # 到 21:00 為止，可依照需求調整
+                        time_options.append(f"{h:02d}:30")
+                
                 col_w, col_t = st.columns(2)
                 with col_w:
-                    target_weekday = st.selectbox("每週固定星期幾？", ["一", "二", "三", "四", "五", "六", "日"])
+                    start_date = st.date_input("🗓️ 首篇發文日期", datetime.now(tw_tz).date())
                 with col_t:
-                    post_time = st.time_input("發文時間", datetime.strptime("18:00", "%H:%M").time())
+                    # 預設選取 18:00 (選項清單中的對應索引)
+                    default_idx = time_options.index("18:00") if "18:00" in time_options else 0
+                    selected_time_str = st.selectbox("⏰ 發文時間", time_options, index=default_idx)
                 
+                post_time = datetime.strptime(selected_time_str, "%H:%M").time()
                 schedule_weeks = st.slider("連續排程未來幾週？ (最多8週)", 1, 8, 4)
 
         gen_btn = st.form_submit_button("🤖 啟動 AI 批量生成")
@@ -211,7 +238,8 @@ with tab1:
         st.markdown("### 🖼️ 浮水印預覽")
         try:
             preview_img = AISmartHelper.add_watermark(uploaded_files[0].getvalue())
-            st.image(preview_img, caption="照片壓上浮水印後的實際效果", width=300)
+            if preview_img:
+                st.image(preview_img, caption="照片壓上浮水印後的實際效果", width=300)
         except Exception as e:
             st.warning("預覽生成中...")
 
@@ -225,7 +253,6 @@ with tab1:
             if uploaded_files:
                 st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
             
-            # 🌟 將網址也打包進去給 AI
             data_payload = {
                 "物件名稱": name, "總價": f"{price}萬", "建坪": f"{ping}坪", "地坪": f"{land_ping}坪",
                 "格局": layout, "車位": parking, "專屬網址": link, "特色": features
@@ -237,12 +264,9 @@ with tab1:
             with st.spinner(f"AI 正在為您生成 {schedule_weeks} 篇不同風格的貼文..."):
                 for i in range(schedule_weeks):
                     if mode == "📅 連續多週排程":
-                        weekdays_map = {"一":0, "二":1, "三":2, "四":3, "五":4, "六":5, "日":6}
-                        days_ahead = weekdays_map[target_weekday] - now.weekday()
-                        if days_ahead <= 0 and i == 0: 
-                            days_ahead += 7
-                        target_date = now + timedelta(days=days_ahead + (i * 7))
-                        target_dt = tw_tz.localize(datetime.combine(target_date.date(), post_time))
+                        # 🌟 根據選擇的起始日期，往後推疊週數
+                        target_date = start_date + timedelta(days=i * 7)
+                        target_dt = tw_tz.localize(datetime.combine(target_date, post_time))
                     else:
                         target_dt = now + timedelta(minutes=15)
                     
@@ -308,7 +332,6 @@ with tab1:
                     st.session_state['post_success'] = False
                     reset_app_state()
 
-
 # ==========================================
 # 4. Tab 2: 粉專成效儀表板 (真實數據版)
 # ==========================================
@@ -321,7 +344,6 @@ with tab2:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN，無法連線。")
         else:
             with st.spinner("正在與 Facebook 連線撈取真實數據..."):
-                # 🌟 更新為最新的 v25.0 API，並使用正確的指標名稱
                 url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/insights"
                 params = {
                     'metric': 'page_impressions,page_engaged_users',
@@ -346,14 +368,12 @@ with tab2:
                         for metric in insights:
                             metric_name = metric['name']
                             for val in metric['values']:
-                                # 擷取日期部分 (例如 2026-03-27)
                                 date_str = val['end_time'].split('T')[0]
                                 if metric_name == 'page_impressions':
                                     impressions_dict[date_str] = val['value']
                                 elif metric_name == 'page_engaged_users':
                                     engagements_dict[date_str] = val['value']
                         
-                        # 將字典轉換為 Pandas DataFrame (加上 pd.Series 確保日期自動對齊)
                         df = pd.DataFrame({
                             "👀 觸及人數 (Impressions)": pd.Series(impressions_dict),
                             "👍 互動人數 (Engaged Users)": pd.Series(engagements_dict)
