@@ -5,7 +5,7 @@ import io
 import pytz
 import os
 import urllib.request
-import time  # 🌟 新增：用來讓 AI 暫停喘息，防止免費版配額爆掉
+import time  # 🌟 用來讓 AI 暫停喘息，防止免費版配額爆掉
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import google.generativeai as genai
@@ -45,17 +45,17 @@ def check_password():
     return True
 
 def check_fb_token_health():
-    """檢查 FB Token 是否過期或失效"""
+    """檢查 FB Token 是否過期或失效 (全線使用 v25.0)"""
     if not FB_PAGE_ID or not FB_TOKEN:
         return
-    url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}?fields=name&access_token={FB_TOKEN}"
+    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}?fields=name&access_token={FB_TOKEN}"
     try:
         res = requests.get(url).json()
         if 'error' in res:
             err_msg = res['error'].get('message', '未知錯誤')
             st.error(f"🚨 **FB 權杖 (Token) 異常或已過期！** 貼文排程將會失敗，請重新產出並更新。\n錯誤訊息: {err_msg}")
     except Exception:
-        pass # 網路問題暫不跳錯
+        pass 
 
 if not check_password():
     st.stop()
@@ -153,7 +153,6 @@ class AISmartHelper:
             try:
                 font = ImageFont.truetype(font_filename, int(h / 16))
             except Exception:
-                st.warning("⚠️ 無法載入中文字體，浮水印可能出現方塊。")
                 font = ImageFont.load_default()
             
             # 🌟 4. 優化：計算位置並畫上陰影與描邊
@@ -185,19 +184,19 @@ class AISmartHelper:
             return None
 
 # ==========================================
-# 3. FB API 溝通層
+# 3. FB API 溝通層 (全線使用 v25.0)
 # ==========================================
 def upload_photo_to_fb(image_obj):
     if not image_obj: return None, "Image processing failed"
     buf = io.BytesIO()
     image_obj.save(buf, format='JPEG', quality=90)
     buf.seek(0)
-    url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/photos"
+    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/photos"
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
     return res.json().get('id'), res.json().get('error')
 
 def post_to_feed(message, photo_ids, scheduled_time=None):
-    url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/feed"
+    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/feed"
     payload = {'message': message, 'access_token': FB_TOKEN}
     if scheduled_time:
         payload['published'] = 'false'
@@ -295,7 +294,7 @@ with tab1:
     st.markdown("---")
     gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
 
-    # --- 邏輯處理 ---
+    # --- 邏輯處理 (含 429 智慧防爆重試機制) ---
     if gen_btn:
         if not selected_styles:
             st.error("❌ 請至少選擇一種文案風格！")
@@ -315,33 +314,54 @@ with tab1:
             st.session_state['generated_posts'] = []
             now = datetime.now(tw_tz)
             
-            # 若有圖片，取出第一張給 Gemini 找亮點
             first_image_bytes = st.session_state['uploaded_files_data'][0] if st.session_state['uploaded_files_data'] else None
+            progress_text = st.empty()
             
-            with st.spinner(f"AI 正在為您生成 {schedule_weeks} 篇不同風格的貼文，並為您找尋照片亮點..."):
-                for i in range(schedule_weeks):
-                    if mode == "📅 連續多週排程":
-                        target_date = start_date + timedelta(days=i * 7)
-                        target_dt = tw_tz.localize(datetime.combine(target_date, post_time))
-                    else:
-                        target_dt = now + timedelta(minutes=15)
-                    
-                    min_allowed_time = now + timedelta(minutes=15)
-                    if target_dt < min_allowed_time:
-                        target_dt = min_allowed_time
+            for i in range(schedule_weeks):
+                if mode == "📅 連續多週排程":
+                    target_date = start_date + timedelta(days=i * 7)
+                    target_dt = tw_tz.localize(datetime.combine(target_date, post_time))
+                else:
+                    target_dt = now + timedelta(minutes=15)
+                
+                min_allowed_time = now + timedelta(minutes=15)
+                if target_dt < min_allowed_time:
+                    target_dt = min_allowed_time
 
-                    current_style = selected_styles[i % len(selected_styles)]
-                    copy_text = AISmartHelper.generate_copy(data_payload, style=current_style, image_bytes=first_image_bytes)
+                current_style = selected_styles[i % len(selected_styles)]
+                
+                # 🛡️ 智慧重試機制 (最多重試 3 次)
+                max_retries = 3
+                success = False
+                
+                progress_text.info(f"⏳ 正在生成第 {i+1}/{schedule_weeks} 篇貼文 (風格：{current_style})...")
+                
+                for attempt in range(max_retries):
+                    copy_text = AISmartHelper.generate_copy(data_dict=data_payload, style=current_style, image_bytes=first_image_bytes)
                     
-                    st.session_state['generated_posts'].append({
-                        "發文時間": target_dt,
-                        "風格": current_style,
-                        "文案": copy_text
-                    })
-                    
-                    # 🌟 關鍵防爆機制：每生成完一篇，暫停 6 秒，確保不踩到 Gemini API 每分鐘發送次數限制
-                    if i < schedule_weeks - 1:
-                        time.sleep(6)
+                    if "429" in copy_text or "exceeded your current quota" in copy_text.lower():
+                        if attempt < max_retries - 1:
+                            st.toast(f"⚠️ 觸發 API 頻率限制，系統自動暫停 20 秒後重試...")
+                            time.sleep(20) # 乖乖等 20 秒再試
+                        else:
+                            st.error(f"❌ 第 {i+1} 篇生成失敗：已達重試上限。請稍候再重新點擊生成。")
+                            copy_text = "⚠️ API 額度暫時耗盡，請稍後手動補上文案。"
+                            success = True # 跳出重試迴圈
+                    else:
+                        success = True
+                        break # 成功生成，跳出重試迴圈
+                
+                st.session_state['generated_posts'].append({
+                    "發文時間": target_dt,
+                    "風格": current_style,
+                    "文案": copy_text
+                })
+                
+                # 為了避免下一篇又馬上撞到限制，平時就先休息 5 秒
+                if i < schedule_weeks - 1 and success:
+                    time.sleep(5)
+            
+            progress_text.success("✅ AI 批量生成完畢！請在下方預覽確認。")
 
     # --- 預覽與確認發佈 ---
     if st.session_state['generated_posts']:
@@ -363,7 +383,6 @@ with tab1:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         status.write("🖼️ 正在處理浮水印並上傳照片...")
                         photo_ids = []
-                        # 取得使用者最後選擇的浮水印位置
                         selected_pos = st.session_state.get('watermark_pos', '右下角')
                         
                         for idx, file_bytes in enumerate(st.session_state['uploaded_files_data']):
@@ -396,7 +415,7 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 5. Tab 2: 粉專成效儀表板 (不報錯穩定版)
+# 5. Tab 2: 粉專成效儀表板 (不報錯穩定版，使用 v25.0)
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁營運戰情室")
@@ -407,7 +426,7 @@ with tab2:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
             with st.spinner("正在與 Facebook 連線，解析近期營運數據中..."):
-                api_base = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}"
+                api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
                 
                 try:
                     # --- 1. 獲取粉專總粉絲數與追蹤數 ---
