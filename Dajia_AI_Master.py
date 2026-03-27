@@ -344,86 +344,80 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 4. Tab 2: 粉專成效儀表板 (🌟 終極無敵防呆版：直接抓真實互動)
+# 4. Tab 2: 粉專成效儀表板 (🌟 終極穩定版：粉專成長與發文活躍度)
 # ==========================================
 with tab2:
-    st.header("📈 近 7 天貼文成效戰情室 (實際互動數)")
-    st.markdown("由於 Facebook 官方鎖蔽了新版粉專的底層曝光數據，我們改為直接抓取最真實的 **「按讚、留言、分享」** 加總數！這能更精準反映客戶對物件的關注度。")
+    st.header("📈 粉絲專頁營運戰情室")
+    st.markdown("由於 Meta 最新 API 政策限制，未經官方冗長審查的程式無法讀取互動數據。我們為您切換為 **「粉專核心成長指標」**，追蹤您的總體粉絲數成長與發文活躍度！")
     
-    if st.button("🔄 撈取最新真實數據"):
+    if st.button("🔄 撈取最新營運數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
-            with st.spinner("正在與 Facebook 連線，計算真實互動數據中..."):
+            with st.spinner("正在與 Facebook 連線，撈取粉專營運數據中..."):
                 api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
                 
-                # 計算時間 (7天前)
-                now_tw = datetime.now(tw_tz)
-                since_time_timestamp = int((now_tw - timedelta(days=7)).timestamp())
-                
-                # 🌟🌟 終極修正：不碰 Insights！直接抓貼文的讚、留言、分享 🌟🌟
-                posts_url = f"{api_base}/published_posts"
-                posts_params = {
-                    # 直接要求 FB 給我們貼文建立時間，以及讚數、留言數、分享數的總和
-                    'fields': 'created_time,likes.summary(true),comments.summary(true),shares',
-                    'since': since_time_timestamp,
-                    'access_token': FB_TOKEN
-                }
-                
                 try:
-                    posts_res = requests.get(posts_url, params=posts_params)
-                    posts_data = posts_res.json()
+                    # 🌟 1. 獲取粉專總粉絲數與追蹤數 (這是粉專基本資料，官方絕對不會阻擋)
+                    page_params = {
+                        'fields': 'fan_count,followers_count,name',
+                        'access_token': FB_TOKEN
+                    }
+                    page_res = requests.get(api_base, params=page_params)
+                    page_data = page_res.json()
                     
-                    if 'error' in posts_data:
-                        st.error(f"❌ 無法撈取貼文：{posts_data['error']['message']}")
+                    if 'error' in page_data:
+                        st.error(f"❌ 無法撈取粉專資料：{page_data['error']['message']}")
                     else:
+                        page_name = page_data.get('name', '有巢氏台中大甲店')
+                        fan_count = page_data.get('fan_count', 0)
+                        followers_count = page_data.get('followers_count', 0)
+                        
+                        # 🌟 2. 獲取近 7 天發文活躍度 (僅抓取發文時間，避開互動數據權限審查)
+                        now_tw = datetime.now(tw_tz)
+                        since_time_timestamp = int((now_tw - timedelta(days=7)).timestamp())
+                        
+                        posts_url = f"{api_base}/published_posts"
+                        posts_params = {
+                            'fields': 'created_time',
+                            'since': since_time_timestamp,
+                            'access_token': FB_TOKEN
+                        }
+                        posts_res = requests.get(posts_url, params=posts_params)
+                        posts_data = posts_res.json()
+                        
                         posts = posts_data.get('data', [])
                         
-                        if not posts:
-                            st.warning("⚠️ 粉專近 7 天內尚未發佈任何貼文喔，所以沒有數據可以生成。快用排程功能發一篇吧！")
-                        else:
-                            # 準備日期範圍列表 (近 7 天)
-                            last_7_days_list = [(now_tw - timedelta(days=i)).strftime('%m-%d') for i in range(6, -1, -1)]
-                            
-                            # 初始化字典
-                            post_count_dict = {d: 0 for d in last_7_days_list}
-                            engagement_dict = {d: 0 for d in last_7_days_list}
-                            
-                            # 解析每篇貼文的實體數據
-                            for p in posts:
-                                try:
-                                    c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                                    target_date = c_time.strftime('%m-%d')
-                                    
-                                    # 如果日期在近 7 天內，進行數據累加
-                                    if target_date in last_7_days_list:
-                                        post_count_dict[target_date] += 1 # 發文數量 +1
-                                        
-                                        # 抓取讚數、留言數、分享數 (若沒有該數據則預設為 0)
-                                        likes = p.get('likes', {}).get('summary', {}).get('total_count', 0)
-                                        comments = p.get('comments', {}).get('summary', {}).get('total_count', 0)
-                                        shares = p.get('shares', {}).get('count', 0)
-                                        
-                                        # 總互動 = 讚 + 留言 + 分享
-                                        engagement_dict[target_date] += (likes + comments + shares)
-                                except Exception:
-                                    continue
-
-                            # 生成圖表 DataFrame
-                            df_metrics = pd.DataFrame({
-                                "📝 發文數量 (Posts)": pd.Series(post_count_dict),
-                                "🔥 真實互動數 (讚+留言+分享)": pd.Series(engagement_dict)
-                            }).fillna(0)
-                            
-                            # 🌟 介面顯示
-                            met_col1, met_col2 = st.columns(2)
-                            met_col1.metric("近 7 天發佈貼文總數", f"{int(df_metrics['📝 發文數量 (Posts)'].sum())} 篇")
-                            met_col2.metric("近 7 天獲取總互動", f"{int(df_metrics['🔥 真實互動數 (讚+留言+分享)'].sum())} 次")
-                            
-                            st.markdown("---")
-                            # 顯示圖表
-                            st.line_chart(df_metrics, use_container_width=True)
-                            st.success(f"✅ 成功撈取！共計算了 {len(posts)} 篇近期貼文的實際互動狀況。")
-                            
+                        # 準備日期範圍列表 (近 7 天)
+                        last_7_days_list = [(now_tw - timedelta(days=i)).strftime('%m-%d') for i in range(6, -1, -1)]
+                        post_count_dict = {d: 0 for d in last_7_days_list}
+                        
+                        for p in posts:
+                            try:
+                                c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
+                                target_date = c_time.strftime('%m-%d')
+                                if target_date in last_7_days_list:
+                                    post_count_dict[target_date] += 1
+                            except:
+                                continue
+                                
+                        df_metrics = pd.DataFrame({
+                            "📝 每日發文數量": pd.Series(post_count_dict)
+                        }).fillna(0)
+                        
+                        # --- 介面呈現 ---
+                        st.success(f"✅ 成功連線至粉專：**{page_name}**")
+                        
+                        # 頂部大指標
+                        met_col1, met_col2, met_col3 = st.columns(3)
+                        met_col1.metric("👥 總粉絲專頁讚數 (Fans)", f"{int(fan_count):,}")
+                        met_col2.metric("🔔 總追蹤人數 (Followers)", f"{int(followers_count):,}")
+                        met_col3.metric("📈 近 7 天發佈貼文", f"{int(df_metrics['📝 每日發文數量'].sum())} 篇")
+                        
+                        st.markdown("---")
+                        st.subheader("📅 近 7 天發文活躍度趨勢")
+                        # 改用柱狀圖 (Bar Chart) 呈現發文篇數更直觀
+                        st.bar_chart(df_metrics, use_container_width=True)
+                        
                 except Exception as e:
-                    st.error(f"連線撈取成效失敗：{e}")
+                    st.error(f"連線失敗：{e}")
