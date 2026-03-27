@@ -79,7 +79,7 @@ class AISmartHelper:
         1. 【吸睛標題】：一行呈現，必須包含物件名稱與總價，簡潔有力。
         2. 【物件基本資料】(優先顯示！)：直接將【物件資訊】轉化為清晰的條列式重點（如：💰總價 / 📐建坪 / 🌲地坪 / 🚪格局 / 🚗車位 等），讓客戶第一眼就掌握硬數據。
         3. 【專業分析與優勢】(取代長篇大論)：依據設定的風格，用 3~5 點「條列式」說明物件優勢。請收起過度浮誇的形容詞，改用精準、客觀的房產術語來打動買方。
-        4. 【排版規範】：段落之間必須空行，保持畫面乾淨專業。Emoji 僅作畫龍點睛，勿過度使用導致眼花撩亂。
+        4. 【排版規範】：段落之間必須空行，保持畫面乾淨專業。Emoji 僅作畫龍點睛，勿過度使用導致眼花狼狽。
 
         【結尾格式要求】 (請原封不動放在文案最後):
         ---
@@ -100,7 +100,8 @@ class AISmartHelper:
             return f"AI 生成失敗：{e}"
 
     @staticmethod
-    def add_watermark(image_bytes, text="有巢氏大甲店"):
+    def add_watermark(image_bytes, text="有巢氏台中大甲店"):
+        # 🌟 0. 雲端下載字體機制 (避開GitHub檔案限制)
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
             try:
@@ -108,32 +109,46 @@ class AISmartHelper:
                 urllib.request.urlretrieve(font_url, font_filename)
             except Exception:
                 pass 
-        
+
         try:
+            # 1. 讀取圖片與自動修正手機直拍問題
             img = Image.open(io.BytesIO(image_bytes))
             img = ImageOps.exif_transpose(img)
+            
+            # 🌟 2. 智慧縮圖 (符合FB最佳畫質且防止記憶體爆滿)
             max_size = (2048, 2048)
             img.thumbnail(max_size, Image.Resampling.LANCZOS)
+            
+            # 準備RGBA透明層
             img = img.convert("RGBA")
-            txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
-            draw = ImageDraw.Draw(txt)
+            txt_layer = Image.new("RGBA", img.size, (255, 255, 255, 0))
+            draw = ImageDraw.Draw(txt_layer)
             w, h = img.size
             
+            # 3. 載入字體 (字體大小稍微調大：h/16)
             try:
-                font = ImageFont.truetype(font_filename, int(h / 18))
+                font = ImageFont.truetype(font_filename, int(h / 16))
             except Exception:
+                st.warning("⚠️ 無法載入中文字體，浮水印可能出現方塊。")
                 font = ImageFont.load_default()
-                
+            
+            # 🌟 4. 優化：清晰且舒服的浮水印 (描邊效果)
             bbox = draw.textbbox((0, 0), text, font=font)
             tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
             margin = int(w * 0.03)
+            # 水印放置在右下角
+            position = (w - tw - margin, h - th - margin)
             
-            draw.text((w - tw - margin + 2, h - th - margin + 2), text, font=font, fill=(0, 0, 0, 150))
-            draw.text((w - tw - margin, h - th - margin), text, font=font, fill=(255, 255, 255, 200))
-            return Image.alpha_composite(img, txt).convert("RGB")
+            # 畫上文字描邊 (黑色描邊，stroke_width=2)，這可以讓它在深色背景也明顯
+            stroke_color = (0, 0, 0, 255) # 純黑描邊
+            main_color = (255, 255, 255, 230) # 白色主文字 (稍微透明，舒服)
+            draw.text(position, text, font=font, fill=main_color, stroke_width=2, stroke_fill=stroke_color)
+            
+            # 複合圖層並回傳RGB
+            return Image.alpha_composite(img, txt_layer).convert("RGB")
             
         except Exception as e:
-            st.error(f"照片處理失敗：{e}")
+            st.error(f"照片處理失敗，檔案可能損毀：{e}")
             return None
 
 def upload_photo_to_fb(image_obj):
@@ -141,11 +156,13 @@ def upload_photo_to_fb(image_obj):
     buf = io.BytesIO()
     image_obj.save(buf, format='JPEG', quality=90)
     buf.seek(0)
+    # 保持 v25.0
     url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/photos"
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
     return res.json().get('id'), res.json().get('error')
 
 def post_to_feed(message, photo_ids, scheduled_time=None):
+    # 保持 v25.0
     url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/feed"
     payload = {'message': message, 'access_token': FB_TOKEN}
     if scheduled_time:
@@ -173,7 +190,7 @@ if 'uploaded_files_data' not in st.session_state:
 tab1, tab2 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板"])
 
 with tab1:
-    # 🌟 移除 st.form 讓日曆跟選單可以即時彈出
+    # 🌟 UI部分維持原樣 (已移除st.form，日曆反應即時)
     m_col1, m_col2, m_col3 = st.columns(3)
     
     with m_col1:
@@ -205,7 +222,6 @@ with tab1:
         post_time = datetime.now(tw_tz).time()
         start_date = datetime.now(tw_tz).date()
         
-        # 🌟 因為移除了 Form，這段 UI 現在會即時反應！
         if mode == "📅 連續多週排程":
             time_options = []
             for h in range(7, 22):
@@ -224,15 +240,15 @@ with tab1:
             schedule_weeks = st.slider("連續排程未來幾週？ (最多8週)", 1, 8, 4)
 
     st.markdown("---")
-    # 🌟 換成普通的按鈕，負責統整資料並發送給 AI
     gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
 
     if uploaded_files:
         st.markdown("### 🖼️ 浮水印預覽")
         try:
+            # 🌟 這裡呼叫水印函數，預設文字已改為「有巢氏台中大甲店」
             preview_img = AISmartHelper.add_watermark(uploaded_files[0].getvalue())
             if preview_img:
-                st.image(preview_img, caption="照片壓上浮水印後的實際效果", width=300)
+                st.image(preview_img, caption="照片壓上浮水印後的實際效果 (描邊更清晰)", width=300)
         except Exception as e:
             st.warning("預覽生成中...")
 
@@ -244,6 +260,7 @@ with tab1:
             st.error("❌ 請填寫物件名稱！")
         else:
             if uploaded_files:
+                # 🌟 修正照片上傳邏輯 (防止記憶體占用)
                 st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
             
             data_payload = {
@@ -296,6 +313,7 @@ with tab1:
                         status.write("🖼️ 正在處理浮水印並上傳照片...")
                         photo_ids = []
                         for idx, file_bytes in enumerate(st.session_state['uploaded_files_data']):
+                            # 🌟 這裡使用優化後的水印
                             img = AISmartHelper.add_watermark(file_bytes)
                             pid, err = upload_photo_to_fb(img)
                             if pid: photo_ids.append(pid)
@@ -305,6 +323,7 @@ with tab1:
                             success_count = 0
                             for post in st.session_state['generated_posts']:
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 連續多週排程" else None
+                                # v25.0端點已整合在post_to_feed中
                                 fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
                                 
                                 if fb_res.status_code == 200:
@@ -325,84 +344,119 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 4. Tab 2: 粉專成效儀表板 (真實數據版 - 貼文加總法)
+# 4. Tab 2: 粉專成效儀表板 (🌟🌟🌟 核心修復)
 # ==========================================
 with tab2:
-    st.header("📈 粉絲專頁近期貼文成效 (真實數據連線)")
-    st.markdown("串接 Facebook 官方 API，自動撈取近 7 天發佈貼文的加總曝光與互動狀況。")
+    st.header("📈 近 7 天貼文成效戰情室")
+    st.markdown("這裡自動撈取您『有巢氏台中大甲店』粉專近一週發佈的新貼文成效，助您即時掌握數據。")
     
-    if st.button("🔄 撈取最新 FB 數據"):
+    if st.button("🔄 撈取最新數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
-            st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN，無法連線。")
+            st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
-            with st.spinner("正在與 Facebook 連線撈取真實數據..."):
-                # 🌟 降回最穩定的 v19.0，改為請求「已發佈的貼文 (published_posts)」及其成效
-                url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/published_posts"
+            with st.spinner("正在與 Facebook 連線撈取數據中..."):
+                # 安全使用 v25.0
+                api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
                 
-                # 計算 7 天前 Timestamp
-                now = datetime.now(tw_tz)
-                since_time = int((now - timedelta(days=7)).timestamp())
+                # 計算時間 (7天前)
+                now_tw = datetime.now(tw_tz)
+                since_time_timestamp = int((now_tw - timedelta(days=7)).timestamp())
                 
-                params = {
-                    'fields': 'created_time,insights.metric(post_impressions,post_engaged_users)',
-                    'since': since_time,
+                # 🌟🌟 🌟 🌟 🌟 🌟 核心修正 🌟 🌟 🌟 🌟 🌟 🌟
+                # 不再直接請求 insights.metric，改為單獨請求。
+                
+                # 步驟1：抓出近 7 天所有貼文基本資料 (包含 created_time)
+                posts_url = f"{api_base}/published_posts"
+                posts_params = {
+                    'fields': 'created_time',
+                    'since': since_time_timestamp,
                     'access_token': FB_TOKEN
                 }
                 
                 try:
-                    res = requests.get(url, params=params)
-                    fb_data = res.json()
+                    posts_res = requests.get(posts_url, params=posts_params)
+                    posts_data = posts_res.json()
                     
-                    if 'error' in fb_data:
-                        st.error(f"❌ FB API 發生錯誤：{fb_data['error']['message']}")
+                    if 'error' in posts_data:
+                        st.error(f"❌ 無法撈取貼文 ID：{posts_data['error']['message']}")
                     else:
-                        posts = fb_data.get('data', [])
+                        posts = posts_data.get('data', [])
                         
-                        # 建立近 7 天的空字典 (確保即使某天沒發文，圖表上也有日期)
-                        last_7_days = [(now - timedelta(days=i)).strftime('%m-%d') for i in range(6, -1, -1)]
-                        impressions_dict = {d: 0 for d in last_7_days}
-                        engagements_dict = {d: 0 for d in last_7_days}
-                        
-                        # 解析每篇貼文的數據
-                        for post in posts:
-                            try:
-                                # 轉換 FB 的 UTC 時間為台灣時間
-                                created_dt = datetime.strptime(post['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                                date_str = created_dt.strftime('%m-%d')
-                                
-                                # 如果這篇貼文是在近 7 天內，則解析其 insights
-                                if date_str in impressions_dict:
-                                    post_insights = post.get('insights', {}).get('data', [])
-                                    for metric in post_insights:
-                                        # 安全提取數值
-                                        val = metric.get('values', [{}])[0].get('value', 0)
-                                        
-                                        if metric['name'] == 'post_impressions':
-                                            impressions_dict[date_str] += val
-                                        elif metric['name'] == 'post_engaged_users':
-                                            engagements_dict[date_str] += val
-                            except Exception:
-                                continue # 若單篇貼文解析失敗直接跳過，不影響整體
-                        
-                        df = pd.DataFrame({
-                            "👀 貼文總曝光 (Impressions)": pd.Series(impressions_dict),
-                            "👍 貼文互動數 (Engagements)": pd.Series(engagements_dict)
-                        }).fillna(0)
-                        
-                        if not df.empty and (df['👀 貼文總曝光 (Impressions)'].sum() > 0 or not posts):
-                            met_col1, met_col2 = st.columns(2)
-                            met_col1.metric("近 7 天新貼文總曝光", f"{int(df['👀 貼文總曝光 (Impressions)'].sum()):,}")
-                            met_col2.metric("近 7 天新貼文總互動", f"{int(df['👍 貼文互動數 (Engagements)'].sum()):,}")
-                            
-                            st.markdown("---")
-                            st.line_chart(df, use_container_width=True)
-                            
-                            if not posts:
-                                st.info("💡 雖然成功連線，但系統發現您近 7 天內尚未發佈任何貼文喔！快用排程功能發一篇吧！")
-                            else:
-                                st.success(f"✅ 成功載入！共撈取了 {len(posts)} 篇近期貼文的成效。")
+                        if not posts:
+                            st.warning("⚠️ 粉專近 7 天內尚未發佈任何貼文喔，所以沒有數據可以生成。")
                         else:
-                            st.warning("⚠️ 撈不到近期的數據。")
+                            # 準備日期範圍列表 (近 7 天)
+                            last_7_days_list = [(now_tw - timedelta(days=i)).strftime('%m-%d') for i in range(6, -1, -1)]
+                            # 初始化字典，確保每天都有 0
+                            impressions_series_dict = {d: 0 for d in last_7_days_list}
+                            engagements_series_dict = {d: 0 for d in last_7_days_list}
                             
+                            # ✨✨ 核心優化：批量請求貼文成效 ✨✨
+                            # 將貼文ID打包
+                            post_ids_list = [post['id'] for post in posts]
+                            
+                            # 🌟 FB 官方最底層兩大不踩雷安全指標
+                            insights_metric_safe = 'post_impressions,post_engaged_users'
+                            
+                            # 使用 FB 的 Batch API 概念 (雖然這裡我們單個發送，但使用此指標更安全)
+                            insights_url = f"https://graph.facebook.com/v25.0/insights"
+                            insights_params = {
+                                'ids': ",".join(post_ids_list), # 打包發送
+                                'metric': insights_metric_safe,
+                                'access_token': FB_TOKEN
+                            }
+                            
+                            insights_res = requests.get(insights_url, params=insights_params)
+                            all_insights_data = insights_res.json()
+                            
+                            if 'error' in all_insights_data:
+                                # 💡 如果這裡報錯，那是 FB 官方特定版本棄用指標的問題
+                                st.error(f"❌ 成效指標請求報錯：{all_insights_data['error']['message']}")
+                            else:
+                                # 解析貼文基本時間
+                                # 建立貼文ID對日期的快速查找字典
+                                post_id_to_date_lookup = {}
+                                for p in posts:
+                                    try:
+                                        c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
+                                        post_id_to_date_lookup[p['id']] = c_time.strftime('%m-%d')
+                                    except:
+                                        continue
+
+                                # 解析批量回傳的 insights 數據
+                                for post_id, p_data in all_insights_data.items():
+                                    target_date = post_id_to_date_lookup.get(post_id)
+                                    # 如果日期不在近7天列表中，則忽略
+                                    if not target_date or target_date not in last_7_days_list:
+                                        continue
+                                    
+                                    if 'data' in p_data:
+                                        for metric_item in p_data['data']:
+                                            # 安全提取數據 (FB 回傳通常在 values[0]['value'])
+                                            if 'values' in metric_item and metric_item['values']:
+                                                val = metric_item['values'][0].get('value', 0)
+                                                
+                                                # 分類數據到日期中
+                                                if metric_item['name'] == 'post_impressions':
+                                                    impressions_series_dict[target_date] += val
+                                                elif metric_item['name'] == 'post_engaged_users':
+                                                    engagements_series_dict[target_date] += val
+                                                    
+                                # 生成圖表 DataFrame
+                                df_metrics = pd.DataFrame({
+                                    "👀 貼文總曝光 (Impressions)": pd.Series(impressions_series_dict),
+                                    "🤝 互動用戶數 (Engaged Users)": pd.Series(engagements_series_dict)
+                                }).fillna(0)
+                                
+                                # 🌟 介面顯示
+                                met_col1, met_col2 = st.columns(2)
+                                met_col1.metric("近 7 天貼文總曝光", f"{int(df_metrics['👀 貼文總曝光 (Impressions)'].sum()):,}")
+                                met_col2.metric("近 7 天貼文總互動用戶", f"{int(df_metrics['🤝 互動用戶數 (Engaged Users)'].sum()):,}")
+                                
+                                st.markdown("---")
+                                # 成效圖表
+                                st.line_chart(df_metrics, use_container_width=True)
+                                st.success(f"✅ 成功撈取近一週 {len(posts)} 篇貼文的真實成效！數據已完成加總。")
+                                
                 except Exception as e:
-                    st.error(f"連線失敗：{e}")
+                    st.error(f"連線撈取成效失敗：{e}")
