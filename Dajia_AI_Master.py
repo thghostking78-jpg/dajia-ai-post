@@ -104,19 +104,25 @@ class AISmartHelper:
         except Exception as e:
             return f"AI 生成失敗：{e}"
 
-    @staticmethod
+@staticmethod
     def add_watermark(image_bytes, text="有巢氏大甲店"):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
         draw = ImageDraw.Draw(txt)
         w, h = img.size
         try:
+            # 系統會在這裡尋找同資料夾下的字體檔
             font = ImageFont.truetype("NotoSansTC-Regular.ttf", int(h / 18))
-        except:
+        except Exception as e:
+            # 若找不到字體檔，給予明確警告
+            st.error("⚠️ 系統找不到 NotoSansTC-Regular.ttf 字體檔，請確認檔案已放入資料夾！")
             font = ImageFont.load_default()
+            
         bbox = draw.textbbox((0, 0), text, font=font)
         tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
         margin = int(w * 0.03)
+        
+        # 加上陰影讓白字在淺色背景也能看清楚
         draw.text((w - tw - margin + 2, h - th - margin + 2), text, font=font, fill=(0, 0, 0, 150))
         draw.text((w - tw - margin, h - th - margin), text, font=font, fill=(255, 255, 255, 200))
         return Image.alpha_composite(img, txt).convert("RGB")
@@ -150,12 +156,13 @@ def reset_app_state():
 # ==========================================
 st.title("🚀 發文小幫手 Master Pro")
 
-# 顯示 Logo 圖片
+# 👇👇👇 請把這段完全刪除 👇👇👇
 try:
     if YOUR_PUBLIC_LOGO_URL:
         st.image(YOUR_PUBLIC_LOGO_URL, width=150)
 except:
     pass
+# 👆👆👆 刪除到這裡為止 👆👆👆
 
 if 'generated_posts' not in st.session_state:
     st.session_state['generated_posts'] = []
