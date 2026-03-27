@@ -204,7 +204,7 @@ with tab1:
         st.subheader("📏 規格細節")
         layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
         parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
-        link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="貼上 591 或官網連結")
+        link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="若不填，預設帶入大甲店官網首頁")
         features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
         uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
 
@@ -263,9 +263,12 @@ with tab1:
                 # 🌟 修正照片上傳邏輯 (防止記憶體占用)
                 st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
             
+            # 🌟 如果沒有填寫網址，自動帶入大甲店專屬首頁
+            final_link = link if link.strip() else "https://shop.yungching.com.tw/0426888050"
+            
             data_payload = {
                 "物件名稱": name, "總價": f"{price}萬", "建坪": f"{ping}坪", "地坪": f"{land_ping}坪",
-                "格局": layout, "車位": parking, "專屬網址": link, "特色": features
+                "格局": layout, "車位": parking, "專屬網址": final_link, "特色": features
             }
             
             st.session_state['generated_posts'] = []
