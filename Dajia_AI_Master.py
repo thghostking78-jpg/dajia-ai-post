@@ -27,7 +27,7 @@ if GEMINI_KEY:
 tw_tz = pytz.timezone('Asia/Taipei')
 
 # ==========================================
-# 1. 安全檢查
+# 1. 安全檢查與系統狀態
 # ==========================================
 def check_password():
     if "password_correct" not in st.session_state:
@@ -43,15 +43,28 @@ def check_password():
         return False
     return True
 
+def check_fb_token_health():
+    """檢查 FB Token 是否過期或失效"""
+    if not FB_PAGE_ID or not FB_TOKEN:
+        return
+    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}?fields=name&access_token={FB_TOKEN}"
+    try:
+        res = requests.get(url).json()
+        if 'error' in res:
+            err_msg = res['error'].get('message', '未知錯誤')
+            st.error(f"🚨 **FB 權杖 (Token) 異常或已過期！** 貼文排程將會失敗，請重新產出並更新。\n錯誤訊息: {err_msg}")
+    except Exception:
+        pass # 網路問題暫不跳錯
+
 if not check_password():
     st.stop()
 
 # ==========================================
-# 2. 智慧功能類別
+# 2. 智慧功能類別 (AI 與 影像處理)
 # ==========================================
 class AISmartHelper:
     @staticmethod
-    def generate_copy(data_dict, style="精簡快訊"):
+    def generate_copy(data_dict, style="精簡快訊", image_bytes=None):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
         
         details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
@@ -60,7 +73,8 @@ class AISmartHelper:
             "在地專業": "【專家分析視角】語氣穩重專業、客觀。著重於大甲區的地段發展潛力、市場行情對比、投資報酬與建築工法。讓買方覺得這是一筆『精準且保值』的決策。",
             "溫馨感性": "【說故事視角】語氣溫暖但「不廢話」。簡單點出空間帶給家人的實用性與學區/生活圈便利性，勾勒成家願景，但仍須保持房仲的專業俐落。",
             "限時急售": "【高 CP 值視角】語氣節奏快、具說服力。強調『單價優勢』、『市場稀有度』與『錯過可惜的絕佳賣點』，用市場數據或性價比來創造急迫感。",
-            "精簡快訊": "【直擊痛點視角】極簡風格，完全不廢話。去除所有形容詞，只留下買方最在意的核心賣點，適合講求效率的投資客或快速瀏覽的讀者。"
+            "精簡快訊": "【直擊痛點視角】極簡風格，完全不廢話。去除所有形容詞，只留下買方最在意的核心賣點，適合講求效率的投資客或快速瀏覽的讀者。",
+            "空拍視野": "【上帝視角】語氣大氣開闊。專注描述基地面寬、地形方正、聯外道路動線與周邊無遮蔽的無敵視野，特別吸引高總價、重視大地坪或農地投資的客群。"
         }
         
         link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
@@ -78,10 +92,11 @@ class AISmartHelper:
         【貼文結構嚴格要求】 (請務必依照此順序排版)：
         1. 【吸睛標題】：一行呈現，必須包含物件名稱與總價，簡潔有力。
         2. 【物件基本資料】(優先顯示！)：直接將【物件資訊】轉化為清晰的條列式重點（如：💰總價 / 📐建坪 / 🌲地坪 / 🚪格局 / 🚗車位 等），讓客戶第一眼就掌握硬數據。
-        3. 【專業分析與優勢】(取代長篇大論)：依據設定的風格，用 3~5 點「條列式」說明物件優勢。請收起過度浮誇的形容詞，改用精準、客觀的房產術語來打動買方。
-        4. 【排版規範】：段落之間必須空行，保持畫面乾淨專業。Emoji 僅作畫龍點睛，勿過度使用導致眼花狼狽。
+        3. 【專業分析與視覺亮點】(取代長篇大論)：依據設定的風格，用 3~5 點「條列式」說明物件優勢。如果有附上照片，請觀察照片並提取 1~2 個真實視覺亮點（例如採光、裝潢細節等）自然融入。請收起過度浮誇的形容詞，改用精準、客觀的房產術語來打動買方。
+        4. 【動態標籤】：請根據物件特性，自動生成 2~3 個精準的 Hashtag (如 #雙車位別墅)，放在結尾格式的前面。
+        5. 【排版規範】：段落之間必須空行，保持畫面乾淨專業。Emoji 僅作畫龍點睛，勿過度使用。
 
-        【結尾格式要求】 (請原封不動放在文案最後):
+        【結尾格式要求】 (請原封不動放在文案最後，動態 Hashtag 請加在原有 Hashtag 之前):
         ---
         {link_text}🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
         📞 **賞屋專線：04-26888050**
@@ -95,12 +110,21 @@ class AISmartHelper:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
         try:
-            return ai_model.generate_content(prompt, safety_settings=safety_settings).text
+            # 加入多模態能力 (吃圖片)
+            contents = [prompt]
+            if image_bytes:
+                try:
+                    img = Image.open(io.BytesIO(image_bytes))
+                    contents.append(img)
+                except Exception:
+                    pass
+                    
+            return ai_model.generate_content(contents, safety_settings=safety_settings).text
         except Exception as e:
             return f"AI 生成失敗：{e}"
 
     @staticmethod
-    def add_watermark(image_bytes, text="有巢氏台中大甲店"):
+    def add_watermark(image_bytes, text="有巢氏台中大甲店", position_type="右下角"):
         # 🌟 0. 雲端下載字體機制 (避開GitHub檔案限制)
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
@@ -132,16 +156,26 @@ class AISmartHelper:
                 st.warning("⚠️ 無法載入中文字體，浮水印可能出現方塊。")
                 font = ImageFont.load_default()
             
-            # 🌟 4. 優化：清晰且舒服的浮水印 (描邊效果)
+            # 🌟 4. 優化：計算位置並畫上陰影與描邊
             bbox = draw.textbbox((0, 0), text, font=font)
             tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
             margin = int(w * 0.03)
-            # 水印放置在右下角
-            position = (w - tw - margin, h - th - margin)
             
-            # 畫上文字描邊 (黑色描邊，stroke_width=2)，這可以讓它在深色背景也明顯
-            stroke_color = (0, 0, 0, 255) # 純黑描邊
-            main_color = (255, 255, 255, 230) # 白色主文字 (稍微透明，舒服)
+            # 動態位置
+            if position_type == "左下角":
+                position = (margin, h - th - margin)
+            elif position_type == "置中":
+                position = ((w - tw) // 2, (h - th) // 2)
+            else: # 預設右下角
+                position = (w - tw - margin, h - th - margin)
+            
+            # 畫陰影 (右下偏移，深黑色半透明)
+            shadow_pos = (position[0] + 3, position[1] + 3)
+            draw.text(shadow_pos, text, font=font, fill=(0, 0, 0, 180))
+            
+            # 畫主文字 (白字主體 + 深灰色描邊)
+            stroke_color = (30, 30, 30, 255) 
+            main_color = (255, 255, 255, 240) 
             draw.text(position, text, font=font, fill=main_color, stroke_width=2, stroke_fill=stroke_color)
             
             # 複合圖層並回傳RGB
@@ -151,18 +185,19 @@ class AISmartHelper:
             st.error(f"照片處理失敗，檔案可能損毀：{e}")
             return None
 
+# ==========================================
+# 3. FB API 溝通層
+# ==========================================
 def upload_photo_to_fb(image_obj):
     if not image_obj: return None, "Image processing failed"
     buf = io.BytesIO()
     image_obj.save(buf, format='JPEG', quality=90)
     buf.seek(0)
-    # 保持 v25.0
     url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/photos"
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
     return res.json().get('id'), res.json().get('error')
 
 def post_to_feed(message, photo_ids, scheduled_time=None):
-    # 保持 v25.0
     url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/feed"
     payload = {'message': message, 'access_token': FB_TOKEN}
     if scheduled_time:
@@ -178,19 +213,21 @@ def reset_app_state():
     st.rerun()
 
 # ==========================================
-# 3. 主介面 UI
+# 4. 主介面 UI
 # ==========================================
 st.title("🚀 發文小幫手 Master Pro")
+check_fb_token_health() # 檢查 Token 健康度
 
 if 'generated_posts' not in st.session_state:
     st.session_state['generated_posts'] = []
 if 'uploaded_files_data' not in st.session_state:
     st.session_state['uploaded_files_data'] = []
+if 'watermark_pos' not in st.session_state:
+    st.session_state['watermark_pos'] = "右下角"
 
 tab1, tab2 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板"])
 
 with tab1:
-    # 🌟 UI部分維持原樣 (已移除st.form，日曆反應即時)
     m_col1, m_col2, m_col3 = st.columns(3)
     
     with m_col1:
@@ -212,7 +249,7 @@ with tab1:
         st.subheader("📅 多風格排程設定")
         selected_styles = st.multiselect(
             "🎨 選擇要輪替的文案風格", 
-            ["在地專業", "溫馨感性", "限時急售", "精簡快訊"], 
+            ["在地專業", "溫馨感性", "限時急售", "精簡快訊", "空拍視野"], 
             default=["限時急售", "溫馨感性"]
         )
         
@@ -239,18 +276,26 @@ with tab1:
             post_time = datetime.strptime(selected_time_str, "%H:%M").time()
             schedule_weeks = st.slider("連續排程未來幾週？ (最多8週)", 1, 8, 4)
 
-    st.markdown("---")
-    gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
-
+    # 🖼️ 浮水印預覽區 (多圖並排)
     if uploaded_files:
-        st.markdown("### 🖼️ 浮水印預覽")
+        st.markdown("---")
+        st.subheader("🖼️ 浮水印預覽與設定")
+        watermark_pos = st.radio("📍 選擇浮水印位置", ["右下角", "左下角", "置中"], horizontal=True)
+        st.session_state['watermark_pos'] = watermark_pos
+        
         try:
-            # 🌟 這裡呼叫水印函數，預設文字已改為「有巢氏台中大甲店」
-            preview_img = AISmartHelper.add_watermark(uploaded_files[0].getvalue())
-            if preview_img:
-                st.image(preview_img, caption="照片壓上浮水印後的實際效果 (描邊更清晰)", width=300)
+            # 依據照片數量建立對應的欄位，防止單張圖片過大
+            cols = st.columns(len(uploaded_files))
+            for idx, file in enumerate(uploaded_files):
+                preview_img = AISmartHelper.add_watermark(file.getvalue(), position_type=watermark_pos)
+                if preview_img:
+                    with cols[idx]:
+                        st.image(preview_img, caption=f"預覽圖 {idx+1}", use_container_width=True)
         except Exception as e:
             st.warning("預覽生成中...")
+
+    st.markdown("---")
+    gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
 
     # --- 邏輯處理 ---
     if gen_btn:
@@ -260,10 +305,8 @@ with tab1:
             st.error("❌ 請填寫物件名稱！")
         else:
             if uploaded_files:
-                # 🌟 修正照片上傳邏輯 (防止記憶體占用)
                 st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
             
-            # 🌟 如果沒有填寫網址，自動帶入大甲店專屬首頁
             final_link = link if link.strip() else "https://shop.yungching.com.tw/0426888050"
             
             data_payload = {
@@ -274,7 +317,10 @@ with tab1:
             st.session_state['generated_posts'] = []
             now = datetime.now(tw_tz)
             
-            with st.spinner(f"AI 正在為您生成 {schedule_weeks} 篇不同風格的貼文..."):
+            # 若有圖片，取出第一張給 Gemini 找亮點
+            first_image_bytes = st.session_state['uploaded_files_data'][0] if st.session_state['uploaded_files_data'] else None
+            
+            with st.spinner(f"AI 正在為您生成 {schedule_weeks} 篇不同風格的貼文，並為您找尋照片亮點..."):
                 for i in range(schedule_weeks):
                     if mode == "📅 連續多週排程":
                         target_date = start_date + timedelta(days=i * 7)
@@ -287,7 +333,7 @@ with tab1:
                         target_dt = min_allowed_time
 
                     current_style = selected_styles[i % len(selected_styles)]
-                    copy_text = AISmartHelper.generate_copy(data_payload, style=current_style)
+                    copy_text = AISmartHelper.generate_copy(data_payload, style=current_style, image_bytes=first_image_bytes)
                     
                     st.session_state['generated_posts'].append({
                         "發文時間": target_dt,
@@ -315,9 +361,11 @@ with tab1:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         status.write("🖼️ 正在處理浮水印並上傳照片...")
                         photo_ids = []
+                        # 取得使用者最後選擇的浮水印位置
+                        selected_pos = st.session_state.get('watermark_pos', '右下角')
+                        
                         for idx, file_bytes in enumerate(st.session_state['uploaded_files_data']):
-                            # 🌟 這裡使用優化後的水印
-                            img = AISmartHelper.add_watermark(file_bytes)
+                            img = AISmartHelper.add_watermark(file_bytes, position_type=selected_pos)
                             pid, err = upload_photo_to_fb(img)
                             if pid: photo_ids.append(pid)
                         
@@ -326,7 +374,6 @@ with tab1:
                             success_count = 0
                             for post in st.session_state['generated_posts']:
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 連續多週排程" else None
-                                # v25.0端點已整合在post_to_feed中
                                 fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
                                 
                                 if fb_res.status_code == 200:
@@ -347,7 +394,7 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 4. Tab 2: 粉專成效儀表板 (🌟 終極穩定版：粉專成長與發文活躍度)
+# 5. Tab 2: 粉專成效儀表板
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁營運戰情室")
@@ -361,7 +408,7 @@ with tab2:
                 api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
                 
                 try:
-                    # 🌟 1. 獲取粉專總粉絲數與追蹤數 (這是粉專基本資料，官方絕對不會阻擋)
+                    # 1. 獲取粉專總粉絲數與追蹤數
                     page_params = {
                         'fields': 'fan_count,followers_count,name',
                         'access_token': FB_TOKEN
@@ -376,7 +423,7 @@ with tab2:
                         fan_count = page_data.get('fan_count', 0)
                         followers_count = page_data.get('followers_count', 0)
                         
-                        # 🌟 2. 獲取近 7 天發文活躍度 (僅抓取發文時間，避開互動數據權限審查)
+                        # 2. 獲取近 7 天發文活躍度
                         now_tw = datetime.now(tw_tz)
                         since_time_timestamp = int((now_tw - timedelta(days=7)).timestamp())
                         
@@ -401,7 +448,7 @@ with tab2:
                                 target_date = c_time.strftime('%m-%d')
                                 if target_date in last_7_days_list:
                                     post_count_dict[target_date] += 1
-                            except:
+                            except Exception:
                                 continue
                                 
                         df_metrics = pd.DataFrame({
@@ -419,7 +466,6 @@ with tab2:
                         
                         st.markdown("---")
                         st.subheader("📅 近 7 天發文活躍度趨勢")
-                        # 改用柱狀圖 (Bar Chart) 呈現發文篇數更直觀
                         st.bar_chart(df_metrics, use_container_width=True)
                         
                 except Exception as e:
