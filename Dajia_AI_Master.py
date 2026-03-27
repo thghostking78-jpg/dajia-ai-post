@@ -3,7 +3,6 @@ import pandas as pd
 import requests
 import io
 import pytz
-import random
 import os
 import urllib.request
 from datetime import datetime, timedelta
@@ -23,7 +22,6 @@ GEMINI_KEY = st.secrets.get("GEMINI_KEY", "")
 
 if GEMINI_KEY:
     genai.configure(api_key=GEMINI_KEY)
-    # 確保使用目前支援最廣的 flash 模型名稱
     ai_model = genai.GenerativeModel('gemini-2.5-flash')
 
 tw_tz = pytz.timezone('Asia/Taipei')
@@ -103,7 +101,6 @@ class AISmartHelper:
 
     @staticmethod
     def add_watermark(image_bytes, text="有巢氏大甲店"):
-        # 雲端自動下載字體機制 (避開 GitHub 25MB 限制)
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
             try:
@@ -114,13 +111,9 @@ class AISmartHelper:
         
         try:
             img = Image.open(io.BytesIO(image_bytes))
-            # 自動轉正手機照片
             img = ImageOps.exif_transpose(img)
-            
-            # 智慧縮圖保護記憶體
             max_size = (2048, 2048)
             img.thumbnail(max_size, Image.Resampling.LANCZOS)
-            
             img = img.convert("RGBA")
             txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
             draw = ImageDraw.Draw(txt)
@@ -130,7 +123,6 @@ class AISmartHelper:
                 font = ImageFont.truetype(font_filename, int(h / 18))
             except Exception:
                 font = ImageFont.load_default()
-                st.warning("⚠️ 載入中文字體失敗，暫時使用預設字體（可能會出現方塊）。")
                 
             bbox = draw.textbbox((0, 0), text, font=font)
             tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
@@ -181,58 +173,59 @@ if 'uploaded_files_data' not in st.session_state:
 tab1, tab2 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板"])
 
 with tab1:
-    with st.form("pro_master_form"):
-        m_col1, m_col2, m_col3 = st.columns(3)
+    # 🌟 移除 st.form 讓日曆跟選單可以即時彈出
+    m_col1, m_col2, m_col3 = st.columns(3)
+    
+    with m_col1:
+        st.subheader("📝 核心資訊")
+        name = st.text_input("🏠 物件名稱*", placeholder="例：大甲鎮瀾商圈美墅")
+        price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
+        ping = st.number_input("📐 建坪 (坪)", min_value=0.0, step=0.1, value=45.0)
+        land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
+
+    with m_col2:
+        st.subheader("📏 規格細節")
+        layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
+        parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
+        link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="貼上 591 或官網連結")
+        features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
+        uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
+
+    with m_col3:
+        st.subheader("📅 多風格排程設定")
+        selected_styles = st.multiselect(
+            "🎨 選擇要輪替的文案風格", 
+            ["在地專業", "溫馨感性", "限時急售", "精簡快訊"], 
+            default=["限時急售", "溫馨感性"]
+        )
         
-        with m_col1:
-            st.subheader("📝 核心資訊")
-            name = st.text_input("🏠 物件名稱*", placeholder="例：大甲鎮瀾商圈美墅")
-            price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
-            ping = st.number_input("📐 建坪 (坪)", min_value=0.0, step=0.1, value=45.0)
-            land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
-
-        with m_col2:
-            st.subheader("📏 規格細節")
-            layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
-            parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
-            link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="貼上 591 或官網連結")
-            features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
-            uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
-
-        with m_col3:
-            st.subheader("📅 多風格排程設定")
-            selected_styles = st.multiselect(
-                "🎨 選擇要輪替的文案風格", 
-                ["在地專業", "溫馨感性", "限時急售", "精簡快訊"], 
-                default=["限時急售", "溫馨感性"]
-            )
+        mode = st.radio("發佈模式", ["⚡ 立即發佈", "📅 連續多週排程"], horizontal=True)
+        
+        schedule_weeks = 1
+        post_time = datetime.now(tw_tz).time()
+        start_date = datetime.now(tw_tz).date()
+        
+        # 🌟 因為移除了 Form，這段 UI 現在會即時反應！
+        if mode == "📅 連續多週排程":
+            time_options = []
+            for h in range(7, 22):
+                time_options.append(f"{h:02d}:00")
+                if h != 21: 
+                    time_options.append(f"{h:02d}:30")
             
-            mode = st.radio("發佈模式", ["⚡ 立即發佈", "📅 連續多週排程"], horizontal=True)
+            col_w, col_t = st.columns(2)
+            with col_w:
+                start_date = st.date_input("🗓️ 首篇發文日期", datetime.now(tw_tz).date())
+            with col_t:
+                default_idx = time_options.index("18:00") if "18:00" in time_options else 0
+                selected_time_str = st.selectbox("⏰ 發文時間", time_options, index=default_idx)
             
-            schedule_weeks = 1
-            post_time = datetime.now(tw_tz).time()
-            start_date = datetime.now(tw_tz).date()
-            
-            if mode == "📅 連續多週排程":
-                # 🌟 生成 07:00 到 21:00 每半小時的選項
-                time_options = []
-                for h in range(7, 22):
-                    time_options.append(f"{h:02d}:00")
-                    if h != 21: # 到 21:00 為止，可依照需求調整
-                        time_options.append(f"{h:02d}:30")
-                
-                col_w, col_t = st.columns(2)
-                with col_w:
-                    start_date = st.date_input("🗓️ 首篇發文日期", datetime.now(tw_tz).date())
-                with col_t:
-                    # 預設選取 18:00 (選項清單中的對應索引)
-                    default_idx = time_options.index("18:00") if "18:00" in time_options else 0
-                    selected_time_str = st.selectbox("⏰ 發文時間", time_options, index=default_idx)
-                
-                post_time = datetime.strptime(selected_time_str, "%H:%M").time()
-                schedule_weeks = st.slider("連續排程未來幾週？ (最多8週)", 1, 8, 4)
+            post_time = datetime.strptime(selected_time_str, "%H:%M").time()
+            schedule_weeks = st.slider("連續排程未來幾週？ (最多8週)", 1, 8, 4)
 
-        gen_btn = st.form_submit_button("🤖 啟動 AI 批量生成")
+    st.markdown("---")
+    # 🌟 換成普通的按鈕，負責統整資料並發送給 AI
+    gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
 
     if uploaded_files:
         st.markdown("### 🖼️ 浮水印預覽")
@@ -264,7 +257,6 @@ with tab1:
             with st.spinner(f"AI 正在為您生成 {schedule_weeks} 篇不同風格的貼文..."):
                 for i in range(schedule_weeks):
                     if mode == "📅 連續多週排程":
-                        # 🌟 根據選擇的起始日期，往後推疊週數
                         target_date = start_date + timedelta(days=i * 7)
                         target_dt = tw_tz.localize(datetime.combine(target_date, post_time))
                     else:
@@ -337,7 +329,7 @@ with tab1:
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁近期成效 (真實數據連線)")
-    st.markdown("串接 Facebook 官方 Insights API，讀取粉專真實的觸及與互動狀況。")
+    st.markdown("串接 Facebook 官方 Insights API，讀取粉專真實的觸及與瀏覽狀況。")
     
     if st.button("🔄 撈取最新 FB 數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
@@ -345,8 +337,10 @@ with tab2:
         else:
             with st.spinner("正在與 Facebook 連線撈取真實數據..."):
                 url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/insights"
+                
+                # 🌟 換成絕對不會報錯的最基礎指標：觸及人數 (impressions) 與 主頁瀏覽量 (views)
                 params = {
-                    'metric': 'page_impressions,page_engaged_users',
+                    'metric': 'page_impressions,page_views_total',
                     'period': 'day',
                     'date_preset': 'last_7d',
                     'access_token': FB_TOKEN
@@ -358,12 +352,11 @@ with tab2:
                     
                     if 'error' in fb_data:
                         st.error(f"❌ FB API 發生錯誤：{fb_data['error']['message']}")
-                        st.info("💡 提示：請確認您的 Token 是否過期，或權限設定是否正確。")
                     else:
                         insights = fb_data.get('data', [])
                         
                         impressions_dict = {}
-                        engagements_dict = {}
+                        views_dict = {}
                         
                         for metric in insights:
                             metric_name = metric['name']
@@ -371,24 +364,24 @@ with tab2:
                                 date_str = val['end_time'].split('T')[0]
                                 if metric_name == 'page_impressions':
                                     impressions_dict[date_str] = val['value']
-                                elif metric_name == 'page_engaged_users':
-                                    engagements_dict[date_str] = val['value']
+                                elif metric_name == 'page_views_total':
+                                    views_dict[date_str] = val['value']
                         
                         df = pd.DataFrame({
                             "👀 觸及人數 (Impressions)": pd.Series(impressions_dict),
-                            "👍 互動人數 (Engaged Users)": pd.Series(engagements_dict)
+                            "👤 粉專瀏覽量 (Page Views)": pd.Series(views_dict)
                         }).fillna(0)
                         
                         if not df.empty:
                             met_col1, met_col2 = st.columns(2)
                             met_col1.metric("近 7 天總觸及", f"{int(df['👀 觸及人數 (Impressions)'].sum()):,}")
-                            met_col2.metric("近 7 天總互動", f"{int(df['👍 互動人數 (Engaged Users)'].sum()):,}")
+                            met_col2.metric("近 7 天總瀏覽量", f"{int(df['👤 粉專瀏覽量 (Page Views)'].sum()):,}")
                             
                             st.markdown("---")
                             st.line_chart(df, use_container_width=True)
                             st.success("✅ 成功載入 Facebook 真實數據！")
                         else:
-                            st.warning("⚠️ 撈不到近期的數據，粉專最近可能沒有任何活動。")
+                            st.warning("⚠️ 撈不到近期的數據，粉專最近可能沒有活動。")
                             
                 except Exception as e:
                     st.error(f"連線失敗：{e}")
