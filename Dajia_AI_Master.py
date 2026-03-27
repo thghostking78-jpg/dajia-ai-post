@@ -13,7 +13,6 @@ from google.generativeai.types import HarmCategory, HarmBlockThreshold
 # 0. 頁面與核心設定
 # ==========================================
 
-
 st.set_page_config(page_title="大甲房產發文小幫手", page_icon="🏠", layout="wide")
 
 FB_PAGE_ID = st.secrets.get("FB_PAGE_ID", "")
@@ -104,7 +103,7 @@ class AISmartHelper:
         except Exception as e:
             return f"AI 生成失敗：{e}"
 
-@staticmethod
+    @staticmethod
     def add_watermark(image_bytes, text="有巢氏大甲店"):
         img = Image.open(io.BytesIO(image_bytes)).convert("RGBA")
         txt = Image.new("RGBA", img.size, (255, 255, 255, 0))
@@ -155,14 +154,6 @@ def reset_app_state():
 # 3. 主介面 UI
 # ==========================================
 st.title("🚀 發文小幫手 Master Pro")
-
-# 👇👇👇 請把這段完全刪除 👇👇👇
-try:
-    if YOUR_PUBLIC_LOGO_URL:
-        st.image(YOUR_PUBLIC_LOGO_URL, width=150)
-except:
-    pass
-# 👆👆👆 刪除到這裡為止 👆👆👆
 
 if 'generated_posts' not in st.session_state:
     st.session_state['generated_posts'] = []
