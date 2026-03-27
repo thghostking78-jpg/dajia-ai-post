@@ -144,9 +144,14 @@ class AISmartHelper:
         #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產 #文昌祠
         """
         
-        # --- 🚀 核心三重保險備援邏輯 ---
-        # 嘗試清單：2.0 Flash -> 1.5 Flash -> 1.5 Flash Latest
-        models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.5-flash-latest"]
+        # --- 🚀 核心多重模型備援邏輯 (根據最新可用清單更新) ---
+        # 嘗試清單：2.5 Flash -> 2.0 Flash -> 系統預設最新 Flash -> 2.0 輕量版
+        models_to_try = [
+            "gemini-2.5-flash",
+            "gemini-2.0-flash",
+            "gemini-flash-latest",
+            "gemini-2.0-flash-lite"
+        ]
         
         last_error = ""
         for model_name in models_to_try:
