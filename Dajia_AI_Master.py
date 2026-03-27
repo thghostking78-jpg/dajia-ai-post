@@ -344,31 +344,28 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 4. Tab 2: 粉專成效儀表板 (🌟🌟🌟 核心修復)
+# 4. Tab 2: 粉專成效儀表板 (🌟 終極無敵防呆版：直接抓真實互動)
 # ==========================================
 with tab2:
-    st.header("📈 近 7 天貼文成效戰情室")
-    st.markdown("這裡自動撈取您『有巢氏台中大甲店』粉專近一週發佈的新貼文成效，助您即時掌握數據。")
+    st.header("📈 近 7 天貼文成效戰情室 (實際互動數)")
+    st.markdown("由於 Facebook 官方鎖蔽了新版粉專的底層曝光數據，我們改為直接抓取最真實的 **「按讚、留言、分享」** 加總數！這能更精準反映客戶對物件的關注度。")
     
-    if st.button("🔄 撈取最新數據"):
+    if st.button("🔄 撈取最新真實數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
-            with st.spinner("正在與 Facebook 連線撈取數據中..."):
-                # 安全使用 v25.0
+            with st.spinner("正在與 Facebook 連線，計算真實互動數據中..."):
                 api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
                 
                 # 計算時間 (7天前)
                 now_tw = datetime.now(tw_tz)
                 since_time_timestamp = int((now_tw - timedelta(days=7)).timestamp())
                 
-                # 🌟🌟 🌟 🌟 🌟 🌟 核心修正 🌟 🌟 🌟 🌟 🌟 🌟
-                # 不再直接請求 insights.metric，改為單獨請求。
-                
-                # 步驟1：抓出近 7 天所有貼文基本資料 (包含 created_time)
+                # 🌟🌟 終極修正：不碰 Insights！直接抓貼文的讚、留言、分享 🌟🌟
                 posts_url = f"{api_base}/published_posts"
                 posts_params = {
-                    'fields': 'created_time',
+                    # 直接要求 FB 給我們貼文建立時間，以及讚數、留言數、分享數的總和
+                    'fields': 'created_time,likes.summary(true),comments.summary(true),shares',
                     'since': since_time_timestamp,
                     'access_token': FB_TOKEN
                 }
@@ -378,85 +375,55 @@ with tab2:
                     posts_data = posts_res.json()
                     
                     if 'error' in posts_data:
-                        st.error(f"❌ 無法撈取貼文 ID：{posts_data['error']['message']}")
+                        st.error(f"❌ 無法撈取貼文：{posts_data['error']['message']}")
                     else:
                         posts = posts_data.get('data', [])
                         
                         if not posts:
-                            st.warning("⚠️ 粉專近 7 天內尚未發佈任何貼文喔，所以沒有數據可以生成。")
+                            st.warning("⚠️ 粉專近 7 天內尚未發佈任何貼文喔，所以沒有數據可以生成。快用排程功能發一篇吧！")
                         else:
                             # 準備日期範圍列表 (近 7 天)
                             last_7_days_list = [(now_tw - timedelta(days=i)).strftime('%m-%d') for i in range(6, -1, -1)]
-                            # 初始化字典，確保每天都有 0
-                            impressions_series_dict = {d: 0 for d in last_7_days_list}
-                            engagements_series_dict = {d: 0 for d in last_7_days_list}
                             
-                            # ✨✨ 核心優化：批量請求貼文成效 ✨✨
-                            # 將貼文ID打包
-                            post_ids_list = [post['id'] for post in posts]
+                            # 初始化字典
+                            post_count_dict = {d: 0 for d in last_7_days_list}
+                            engagement_dict = {d: 0 for d in last_7_days_list}
                             
-                            # 🌟 FB 官方最底層兩大不踩雷安全指標
-                            insights_metric_safe = 'post_impressions,post_engaged_users'
-                            
-                            # 使用 FB 的 Batch API 概念 (雖然這裡我們單個發送，但使用此指標更安全)
-                            insights_url = f"https://graph.facebook.com/v25.0/insights"
-                            insights_params = {
-                                'ids': ",".join(post_ids_list), # 打包發送
-                                'metric': insights_metric_safe,
-                                'access_token': FB_TOKEN
-                            }
-                            
-                            insights_res = requests.get(insights_url, params=insights_params)
-                            all_insights_data = insights_res.json()
-                            
-                            if 'error' in all_insights_data:
-                                # 💡 如果這裡報錯，那是 FB 官方特定版本棄用指標的問題
-                                st.error(f"❌ 成效指標請求報錯：{all_insights_data['error']['message']}")
-                            else:
-                                # 解析貼文基本時間
-                                # 建立貼文ID對日期的快速查找字典
-                                post_id_to_date_lookup = {}
-                                for p in posts:
-                                    try:
-                                        c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                                        post_id_to_date_lookup[p['id']] = c_time.strftime('%m-%d')
-                                    except:
-                                        continue
-
-                                # 解析批量回傳的 insights 數據
-                                for post_id, p_data in all_insights_data.items():
-                                    target_date = post_id_to_date_lookup.get(post_id)
-                                    # 如果日期不在近7天列表中，則忽略
-                                    if not target_date or target_date not in last_7_days_list:
-                                        continue
+                            # 解析每篇貼文的實體數據
+                            for p in posts:
+                                try:
+                                    c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
+                                    target_date = c_time.strftime('%m-%d')
                                     
-                                    if 'data' in p_data:
-                                        for metric_item in p_data['data']:
-                                            # 安全提取數據 (FB 回傳通常在 values[0]['value'])
-                                            if 'values' in metric_item and metric_item['values']:
-                                                val = metric_item['values'][0].get('value', 0)
-                                                
-                                                # 分類數據到日期中
-                                                if metric_item['name'] == 'post_impressions':
-                                                    impressions_series_dict[target_date] += val
-                                                elif metric_item['name'] == 'post_engaged_users':
-                                                    engagements_series_dict[target_date] += val
-                                                    
-                                # 生成圖表 DataFrame
-                                df_metrics = pd.DataFrame({
-                                    "👀 貼文總曝光 (Impressions)": pd.Series(impressions_series_dict),
-                                    "🤝 互動用戶數 (Engaged Users)": pd.Series(engagements_series_dict)
-                                }).fillna(0)
-                                
-                                # 🌟 介面顯示
-                                met_col1, met_col2 = st.columns(2)
-                                met_col1.metric("近 7 天貼文總曝光", f"{int(df_metrics['👀 貼文總曝光 (Impressions)'].sum()):,}")
-                                met_col2.metric("近 7 天貼文總互動用戶", f"{int(df_metrics['🤝 互動用戶數 (Engaged Users)'].sum()):,}")
-                                
-                                st.markdown("---")
-                                # 成效圖表
-                                st.line_chart(df_metrics, use_container_width=True)
-                                st.success(f"✅ 成功撈取近一週 {len(posts)} 篇貼文的真實成效！數據已完成加總。")
-                                
+                                    # 如果日期在近 7 天內，進行數據累加
+                                    if target_date in last_7_days_list:
+                                        post_count_dict[target_date] += 1 # 發文數量 +1
+                                        
+                                        # 抓取讚數、留言數、分享數 (若沒有該數據則預設為 0)
+                                        likes = p.get('likes', {}).get('summary', {}).get('total_count', 0)
+                                        comments = p.get('comments', {}).get('summary', {}).get('total_count', 0)
+                                        shares = p.get('shares', {}).get('count', 0)
+                                        
+                                        # 總互動 = 讚 + 留言 + 分享
+                                        engagement_dict[target_date] += (likes + comments + shares)
+                                except Exception:
+                                    continue
+
+                            # 生成圖表 DataFrame
+                            df_metrics = pd.DataFrame({
+                                "📝 發文數量 (Posts)": pd.Series(post_count_dict),
+                                "🔥 真實互動數 (讚+留言+分享)": pd.Series(engagement_dict)
+                            }).fillna(0)
+                            
+                            # 🌟 介面顯示
+                            met_col1, met_col2 = st.columns(2)
+                            met_col1.metric("近 7 天發佈貼文總數", f"{int(df_metrics['📝 發文數量 (Posts)'].sum())} 篇")
+                            met_col2.metric("近 7 天獲取總互動", f"{int(df_metrics['🔥 真實互動數 (讚+留言+分享)'].sum())} 次")
+                            
+                            st.markdown("---")
+                            # 顯示圖表
+                            st.line_chart(df_metrics, use_container_width=True)
+                            st.success(f"✅ 成功撈取！共計算了 {len(posts)} 篇近期貼文的實際互動狀況。")
+                            
                 except Exception as e:
                     st.error(f"連線撈取成效失敗：{e}")
