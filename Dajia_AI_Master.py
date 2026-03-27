@@ -321,10 +321,10 @@ with tab2:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN，無法連線。")
         else:
             with st.spinner("正在與 Facebook 連線撈取真實數據..."):
-                # FB Insights API 網址 (抓取近 7 天的觸及與互動)
-                url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/insights"
+                # 🌟 更新為最新的 v25.0 API，並使用正確的指標名稱
+                url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/insights"
                 params = {
-                    'metric': 'page_impressions,page_post_engagements',
+                    'metric': 'page_impressions,page_engaged_users',
                     'period': 'day',
                     'date_preset': 'last_7d',
                     'access_token': FB_TOKEN
@@ -336,9 +336,8 @@ with tab2:
                     
                     if 'error' in fb_data:
                         st.error(f"❌ FB API 發生錯誤：{fb_data['error']['message']}")
-                        st.info("💡 提示：請確認您的 Token 是否過期，或是否已在 Meta 開發者後台開啟 `pages_read_engagement` 權限。")
+                        st.info("💡 提示：請確認您的 Token 是否過期，或權限設定是否正確。")
                     else:
-                        # 解析 FB 回傳的 JSON 結構
                         insights = fb_data.get('data', [])
                         
                         impressions_dict = {}
@@ -347,23 +346,23 @@ with tab2:
                         for metric in insights:
                             metric_name = metric['name']
                             for val in metric['values']:
-                                # 擷取日期部分 (例如 2024-05-01)
+                                # 擷取日期部分 (例如 2026-03-27)
                                 date_str = val['end_time'].split('T')[0]
                                 if metric_name == 'page_impressions':
                                     impressions_dict[date_str] = val['value']
-                                elif metric_name == 'page_post_engagements':
+                                elif metric_name == 'page_engaged_users':
                                     engagements_dict[date_str] = val['value']
                         
-                        # 將字典轉換為 Pandas DataFrame，並處理空值
+                        # 將字典轉換為 Pandas DataFrame (加上 pd.Series 確保日期自動對齊)
                         df = pd.DataFrame({
-                            "👀 觸及人數 (Impressions)": impressions_dict,
-                            "👍 互動次數 (Engagements)": engagements_dict
+                            "👀 觸及人數 (Impressions)": pd.Series(impressions_dict),
+                            "👍 互動人數 (Engaged Users)": pd.Series(engagements_dict)
                         }).fillna(0)
                         
                         if not df.empty:
                             met_col1, met_col2 = st.columns(2)
                             met_col1.metric("近 7 天總觸及", f"{int(df['👀 觸及人數 (Impressions)'].sum()):,}")
-                            met_col2.metric("近 7 天總互動", f"{int(df['👍 互動次數 (Engagements)'].sum()):,}")
+                            met_col2.metric("近 7 天總互動", f"{int(df['👍 互動人數 (Engaged Users)'].sum()):,}")
                             
                             st.markdown("---")
                             st.line_chart(df, use_container_width=True)
