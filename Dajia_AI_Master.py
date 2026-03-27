@@ -325,24 +325,27 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 4. Tab 2: 粉專成效儀表板 (真實數據版)
+# 4. Tab 2: 粉專成效儀表板 (真實數據版 - 貼文加總法)
 # ==========================================
 with tab2:
-    st.header("📈 粉絲專頁近期成效 (真實數據連線)")
-    st.markdown("串接 Facebook 官方 Insights API，讀取粉專真實的曝光與觸及狀況。")
+    st.header("📈 粉絲專頁近期貼文成效 (真實數據連線)")
+    st.markdown("串接 Facebook 官方 API，自動撈取近 7 天發佈貼文的加總曝光與互動狀況。")
     
     if st.button("🔄 撈取最新 FB 數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN，無法連線。")
         else:
             with st.spinner("正在與 Facebook 連線撈取真實數據..."):
-                url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/insights"
+                # 🌟 降回最穩定的 v19.0，改為請求「已發佈的貼文 (published_posts)」及其成效
+                url = f"https://graph.facebook.com/v19.0/{FB_PAGE_ID}/published_posts"
                 
-                # 🌟 換成最安全、絕對支援的兩大元老指標：總曝光 與 不重複觸及人數
+                # 計算 7 天前 Timestamp
+                now = datetime.now(tw_tz)
+                since_time = int((now - timedelta(days=7)).timestamp())
+                
                 params = {
-                    'metric': 'page_impressions,page_impressions_unique',
-                    'period': 'day',
-                    'date_preset': 'last_7d',
+                    'fields': 'created_time,insights.metric(post_impressions,post_engaged_users)',
+                    'since': since_time,
                     'access_token': FB_TOKEN
                 }
                 
@@ -352,37 +355,54 @@ with tab2:
                     
                     if 'error' in fb_data:
                         st.error(f"❌ FB API 發生錯誤：{fb_data['error']['message']}")
-                        st.info("💡 提示：Facebook API 經常變動，若持續報錯請確認 Token 為『粉絲專頁存取權杖 (Page Access Token)』而非個人權杖。")
                     else:
-                        insights = fb_data.get('data', [])
+                        posts = fb_data.get('data', [])
                         
-                        impressions_dict = {}
-                        reach_dict = {}
+                        # 建立近 7 天的空字典 (確保即使某天沒發文，圖表上也有日期)
+                        last_7_days = [(now - timedelta(days=i)).strftime('%m-%d') for i in range(6, -1, -1)]
+                        impressions_dict = {d: 0 for d in last_7_days}
+                        engagements_dict = {d: 0 for d in last_7_days}
                         
-                        for metric in insights:
-                            metric_name = metric['name']
-                            for val in metric['values']:
-                                date_str = val['end_time'].split('T')[0]
-                                if metric_name == 'page_impressions':
-                                    impressions_dict[date_str] = val['value']
-                                elif metric_name == 'page_impressions_unique':
-                                    reach_dict[date_str] = val['value']
+                        # 解析每篇貼文的數據
+                        for post in posts:
+                            try:
+                                # 轉換 FB 的 UTC 時間為台灣時間
+                                created_dt = datetime.strptime(post['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
+                                date_str = created_dt.strftime('%m-%d')
+                                
+                                # 如果這篇貼文是在近 7 天內，則解析其 insights
+                                if date_str in impressions_dict:
+                                    post_insights = post.get('insights', {}).get('data', [])
+                                    for metric in post_insights:
+                                        # 安全提取數值
+                                        val = metric.get('values', [{}])[0].get('value', 0)
+                                        
+                                        if metric['name'] == 'post_impressions':
+                                            impressions_dict[date_str] += val
+                                        elif metric['name'] == 'post_engaged_users':
+                                            engagements_dict[date_str] += val
+                            except Exception:
+                                continue # 若單篇貼文解析失敗直接跳過，不影響整體
                         
                         df = pd.DataFrame({
-                            "👀 總曝光次數 (Impressions)": pd.Series(impressions_dict),
-                            "👤 觸及人數 (Reach)": pd.Series(reach_dict)
+                            "👀 貼文總曝光 (Impressions)": pd.Series(impressions_dict),
+                            "👍 貼文互動數 (Engagements)": pd.Series(engagements_dict)
                         }).fillna(0)
                         
-                        if not df.empty:
+                        if not df.empty and (df['👀 貼文總曝光 (Impressions)'].sum() > 0 or not posts):
                             met_col1, met_col2 = st.columns(2)
-                            met_col1.metric("近 7 天總曝光", f"{int(df['👀 總曝光次數 (Impressions)'].sum()):,}")
-                            met_col2.metric("近 7 天觸及人數", f"{int(df['👤 觸及人數 (Reach)'].sum()):,}")
+                            met_col1.metric("近 7 天新貼文總曝光", f"{int(df['👀 貼文總曝光 (Impressions)'].sum()):,}")
+                            met_col2.metric("近 7 天新貼文總互動", f"{int(df['👍 貼文互動數 (Engagements)'].sum()):,}")
                             
                             st.markdown("---")
                             st.line_chart(df, use_container_width=True)
-                            st.success("✅ 成功載入 Facebook 真實數據！")
+                            
+                            if not posts:
+                                st.info("💡 雖然成功連線，但系統發現您近 7 天內尚未發佈任何貼文喔！快用排程功能發一篇吧！")
+                            else:
+                                st.success(f"✅ 成功載入！共撈取了 {len(posts)} 篇近期貼文的成效。")
                         else:
-                            st.warning("⚠️ 撈不到近期的數據，粉專最近可能沒有活動。")
+                            st.warning("⚠️ 撈不到近期的數據。")
                             
                 except Exception as e:
                     st.error(f"連線失敗：{e}")
