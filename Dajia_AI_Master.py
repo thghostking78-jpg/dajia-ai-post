@@ -329,7 +329,7 @@ with tab1:
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁近期成效 (真實數據連線)")
-    st.markdown("串接 Facebook 官方 Insights API，讀取粉專真實的觸及與瀏覽狀況。")
+    st.markdown("串接 Facebook 官方 Insights API，讀取粉專真實的曝光與觸及狀況。")
     
     if st.button("🔄 撈取最新 FB 數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
@@ -338,9 +338,9 @@ with tab2:
             with st.spinner("正在與 Facebook 連線撈取真實數據..."):
                 url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/insights"
                 
-                # 🌟 換成絕對不會報錯的最基礎指標：觸及人數 (impressions) 與 主頁瀏覽量 (views)
+                # 🌟 換成最安全、絕對支援的兩大元老指標：總曝光 與 不重複觸及人數
                 params = {
-                    'metric': 'page_impressions,page_views_total',
+                    'metric': 'page_impressions,page_impressions_unique',
                     'period': 'day',
                     'date_preset': 'last_7d',
                     'access_token': FB_TOKEN
@@ -352,11 +352,12 @@ with tab2:
                     
                     if 'error' in fb_data:
                         st.error(f"❌ FB API 發生錯誤：{fb_data['error']['message']}")
+                        st.info("💡 提示：Facebook API 經常變動，若持續報錯請確認 Token 為『粉絲專頁存取權杖 (Page Access Token)』而非個人權杖。")
                     else:
                         insights = fb_data.get('data', [])
                         
                         impressions_dict = {}
-                        views_dict = {}
+                        reach_dict = {}
                         
                         for metric in insights:
                             metric_name = metric['name']
@@ -364,18 +365,18 @@ with tab2:
                                 date_str = val['end_time'].split('T')[0]
                                 if metric_name == 'page_impressions':
                                     impressions_dict[date_str] = val['value']
-                                elif metric_name == 'page_views_total':
-                                    views_dict[date_str] = val['value']
+                                elif metric_name == 'page_impressions_unique':
+                                    reach_dict[date_str] = val['value']
                         
                         df = pd.DataFrame({
-                            "👀 觸及人數 (Impressions)": pd.Series(impressions_dict),
-                            "👤 粉專瀏覽量 (Page Views)": pd.Series(views_dict)
+                            "👀 總曝光次數 (Impressions)": pd.Series(impressions_dict),
+                            "👤 觸及人數 (Reach)": pd.Series(reach_dict)
                         }).fillna(0)
                         
                         if not df.empty:
                             met_col1, met_col2 = st.columns(2)
-                            met_col1.metric("近 7 天總觸及", f"{int(df['👀 觸及人數 (Impressions)'].sum()):,}")
-                            met_col2.metric("近 7 天總瀏覽量", f"{int(df['👤 粉專瀏覽量 (Page Views)'].sum()):,}")
+                            met_col1.metric("近 7 天總曝光", f"{int(df['👀 總曝光次數 (Impressions)'].sum()):,}")
+                            met_col2.metric("近 7 天觸及人數", f"{int(df['👤 觸及人數 (Reach)'].sum()):,}")
                             
                             st.markdown("---")
                             st.line_chart(df, use_container_width=True)
