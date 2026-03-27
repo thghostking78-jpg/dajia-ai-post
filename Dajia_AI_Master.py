@@ -394,41 +394,73 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 5. Tab 2: 粉專成效儀表板 (終極除錯測試版)
+# 5. Tab 2: 粉專成效儀表板 (穩定營運版)
 # ==========================================
 with tab2:
-    st.header("📈 粉絲專頁營運戰情室 (Debug 模式)")
-    st.markdown("正在測試 Meta API 權限牆...")
+    st.header("📈 粉絲專頁營運戰情室")
+    st.markdown("追蹤您的粉專成長軌跡與近期發文紀錄。(註：因 Meta API 進階審查限制，互動數據需至 FB 後台查看)")
     
     if st.button("🔄 撈取最新營運數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
-            with st.spinner("連線測試中..."):
-                # 💡 建議將 v25.0 降回你截圖中顯示的穩定版本，例如 v20.0 或 v21.0
-                api_base = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}" 
+            with st.spinner("正在與 Facebook 連線，解析近期營運數據中..."):
+                # 使用我們確定可行的基礎權限端點
+                api_base = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}"
                 
                 try:
-                    # --- 先測試最基礎的互動：只抓「讚數 (reactions)」 ---
-                    # 移除了 shares 和 comments 看看是不是它們在搞鬼
-                    test_url = f"{api_base}/published_posts"
-                    test_params = {
-                        'fields': 'created_time,message,reactions.summary(total_count)',
-                        'limit': 5,
-                        'access_token': FB_TOKEN
-                    }
+                    # --- 1. 獲取粉專總粉絲數與追蹤數 ---
+                    page_params = {'fields': 'fan_count,followers_count,name', 'access_token': FB_TOKEN}
+                    page_data = requests.get(api_base, params=page_params).json()
                     
-                    res = requests.get(test_url, params=test_params)
-                    data = res.json()
-                    
-                    if 'error' in data:
-                        st.error("🚨 抓到了！Meta 回傳的真實錯誤訊息如下：")
-                        # 將原始錯誤 JSON 完整印出，讓我們看清楚是哪個環節卡住
-                        st.json(data['error'])
-                        st.warning("👉 請複製上方的 JSON 錯誤訊息告訴我！")
+                    if 'error' in page_data:
+                        st.error(f"❌ 無法撈取粉專資料：{page_data['error']['message']}")
                     else:
-                        st.success("🎉 測試成功！如果看到這行，代表是『分享或留言』欄位權限卡住了。")
-                        st.json(data) # 印出成功抓到的數據
+                        page_name = page_data.get('name', '有巢氏台中大甲店')
+                        fan_count = page_data.get('fan_count', 0)
+                        followers_count = page_data.get('followers_count', 0)
                         
+                        st.success(f"✅ 成功連線至粉專：**{page_name}**")
+                        
+                        # --- 2. 獲取近期發文紀錄 (不強求互動數據，保證不報錯) ---
+                        posts_url = f"{api_base}/published_posts"
+                        posts_params = {
+                            'fields': 'created_time,message,permalink_url',
+                            'limit': 15, # 抓最近 15 篇
+                            'access_token': FB_TOKEN
+                        }
+                        posts_res = requests.get(posts_url, params=posts_params)
+                        posts_data = posts_res.json()
+                        
+                        # --- 3. 數據解析與呈現 ---
+                        met_col1, met_col2 = st.columns(2)
+                        met_col1.metric("👥 總粉絲專頁讚數", f"{int(fan_count):,}")
+                        met_col2.metric("🔔 總追蹤人數", f"{int(followers_count):,}")
+                        
+                        st.markdown("---")
+                        st.subheader("📝 近期發文軌跡 (最新 15 篇)")
+                        
+                        posts = posts_data.get('data', [])
+                        if not posts:
+                            st.info("近期尚無貼文紀錄。")
+                        else:
+                            for idx, p in enumerate(posts):
+                                try:
+                                    c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
+                                    msg_preview = p.get('message', '無文字內容 (可能僅有照片或影片)')[:80].replace('\n', ' ') + "..."
+                                    post_link = p.get('permalink_url', '#')
+                                    
+                                    with st.container():
+                                        col_time, col_msg, col_link = st.columns([2, 5, 1])
+                                        with col_time:
+                                            st.markdown(f"**🗓️ {c_time.strftime('%Y-%m-%d %H:%M')}**")
+                                        with col_msg:
+                                            st.text(msg_preview)
+                                        with col_link:
+                                            st.markdown(f"[🔗 看成效]({post_link})")
+                                    st.divider()
+                                except Exception:
+                                    continue
+                                    
                 except Exception as e:
-                    st.error(f"程式連線發生未知錯誤：{e}")
+                    st.error(f"連線失敗：{e}")
