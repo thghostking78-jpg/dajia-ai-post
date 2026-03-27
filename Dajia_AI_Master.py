@@ -5,6 +5,7 @@ import io
 import pytz
 import os
 import urllib.request
+import time  # 🌟 新增：用來讓 AI 暫停喘息，防止免費版配額爆掉
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import google.generativeai as genai
@@ -47,7 +48,7 @@ def check_fb_token_health():
     """檢查 FB Token 是否過期或失效"""
     if not FB_PAGE_ID or not FB_TOKEN:
         return
-    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}?fields=name&access_token={FB_TOKEN}"
+    url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}?fields=name&access_token={FB_TOKEN}"
     try:
         res = requests.get(url).json()
         if 'error' in res:
@@ -110,7 +111,7 @@ class AISmartHelper:
             HarmCategory.HARM_CATEGORY_DANGEROUS_CONTENT: HarmBlockThreshold.BLOCK_NONE,
         }
         try:
-            # 加入多模態能力 (吃圖片)
+            # 🚀 支援圖片視覺辨識
             contents = [prompt]
             if image_bytes:
                 try:
@@ -139,17 +140,16 @@ class AISmartHelper:
             img = Image.open(io.BytesIO(image_bytes))
             img = ImageOps.exif_transpose(img)
             
-            # 🌟 2. 智慧縮圖 (符合FB最佳畫質且防止記憶體爆滿)
+            # 2. 智慧縮圖 (符合 FB 最佳畫質且防止記憶體爆滿)
             max_size = (2048, 2048)
             img.thumbnail(max_size, Image.Resampling.LANCZOS)
             
-            # 準備RGBA透明層
             img = img.convert("RGBA")
             txt_layer = Image.new("RGBA", img.size, (255, 255, 255, 0))
             draw = ImageDraw.Draw(txt_layer)
             w, h = img.size
             
-            # 3. 載入字體 (字體大小稍微調大：h/16)
+            # 3. 載入字體
             try:
                 font = ImageFont.truetype(font_filename, int(h / 16))
             except Exception:
@@ -178,7 +178,6 @@ class AISmartHelper:
             main_color = (255, 255, 255, 240) 
             draw.text(position, text, font=font, fill=main_color, stroke_width=2, stroke_fill=stroke_color)
             
-            # 複合圖層並回傳RGB
             return Image.alpha_composite(img, txt_layer).convert("RGB")
             
         except Exception as e:
@@ -193,12 +192,12 @@ def upload_photo_to_fb(image_obj):
     buf = io.BytesIO()
     image_obj.save(buf, format='JPEG', quality=90)
     buf.seek(0)
-    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/photos"
+    url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/photos"
     res = requests.post(url, data={'published': 'false', 'access_token': FB_TOKEN}, files={'source': buf})
     return res.json().get('id'), res.json().get('error')
 
 def post_to_feed(message, photo_ids, scheduled_time=None):
-    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/feed"
+    url = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}/feed"
     payload = {'message': message, 'access_token': FB_TOKEN}
     if scheduled_time:
         payload['published'] = 'false'
@@ -284,7 +283,6 @@ with tab1:
         st.session_state['watermark_pos'] = watermark_pos
         
         try:
-            # 依據照片數量建立對應的欄位，防止單張圖片過大
             cols = st.columns(len(uploaded_files))
             for idx, file in enumerate(uploaded_files):
                 preview_img = AISmartHelper.add_watermark(file.getvalue(), position_type=watermark_pos)
@@ -340,6 +338,10 @@ with tab1:
                         "風格": current_style,
                         "文案": copy_text
                     })
+                    
+                    # 🌟 關鍵防爆機制：每生成完一篇，暫停 6 秒，確保不踩到 Gemini API 每分鐘發送次數限制
+                    if i < schedule_weeks - 1:
+                        time.sleep(6)
 
     # --- 預覽與確認發佈 ---
     if st.session_state['generated_posts']:
@@ -394,7 +396,7 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 5. Tab 2: 粉專成效儀表板 (穩定營運版)
+# 5. Tab 2: 粉專成效儀表板 (不報錯穩定版)
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁營運戰情室")
@@ -405,7 +407,6 @@ with tab2:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
             with st.spinner("正在與 Facebook 連線，解析近期營運數據中..."):
-                # 使用我們確定可行的基礎權限端點
                 api_base = f"https://graph.facebook.com/v21.0/{FB_PAGE_ID}"
                 
                 try:
@@ -422,11 +423,11 @@ with tab2:
                         
                         st.success(f"✅ 成功連線至粉專：**{page_name}**")
                         
-                        # --- 2. 獲取近期發文紀錄 (不強求互動數據，保證不報錯) ---
+                        # --- 2. 獲取近期發文紀錄 (基礎權限，絕對不報錯) ---
                         posts_url = f"{api_base}/published_posts"
                         posts_params = {
                             'fields': 'created_time,message,permalink_url',
-                            'limit': 15, # 抓最近 15 篇
+                            'limit': 15,
                             'access_token': FB_TOKEN
                         }
                         posts_res = requests.get(posts_url, params=posts_params)
