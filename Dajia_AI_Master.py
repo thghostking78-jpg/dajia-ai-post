@@ -169,7 +169,6 @@ class AISmartHelper:
 
     @staticmethod
     def generate_ad_advice(post_text):
-        """根據爆款貼文，呼叫 AI 生成廣告投放建議"""
         if not GEMINI_KEY: return "⚠️ 找不到 API Key，無法生成建議"
         prompt = f"""
         你是一位 Meta (Facebook) 廣告投放專家。
@@ -204,15 +203,22 @@ class AISmartHelper:
             txt_layer = Image.new("RGBA", img.size, (255, 255, 255, 0))
             draw = ImageDraw.Draw(txt_layer)
             w, h = img.size
+            
             try: font = ImageFont.truetype(font_filename, int(h / 16))
             except: font = ImageFont.load_default()
-            bbox = draw.textbbox((0, 0), text, font=font)
-            tw, th = bbox[2]-bbox[0], bbox[3]-bbox[1]
+            
             margin = int(w * 0.03)
             
-            if position_type == "左下角": position = (margin, h - th - margin)
-            elif position_type == "置中": position = ((w - tw) // 2, (h - th) // 2)
-            else: position = (w - tw - margin, h - th - margin)
+            # 🌟 徹底修復：使用精準錨點對齊 (anchor)，保證不跑版錯位
+            if position_type == "左下角": 
+                pos = (margin, h - margin)
+                anchor_align = "ld"
+            elif position_type == "置中": 
+                pos = (w // 2, h // 2)
+                anchor_align = "mm"
+            else: 
+                pos = (w - margin, h - margin)
+                anchor_align = "rd"
             
             if color_theme == "專屬綠 (推薦)":
                 main_color, stroke_color = (0, 153, 76, 240), (255, 255, 255, 255) 
@@ -221,8 +227,8 @@ class AISmartHelper:
             else: 
                 main_color, stroke_color = (255, 255, 255, 240), (30, 30, 30, 255)    
 
-            draw.text((position[0]+3, position[1]+3), text, font=font, fill=(0, 0, 0, 150))
-            draw.text(position, text, font=font, fill=main_color, stroke_width=3, stroke_fill=stroke_color)
+            draw.text((pos[0]+3, pos[1]+3), text, font=font, fill=(0, 0, 0, 150), anchor=anchor_align)
+            draw.text(pos, text, font=font, fill=main_color, stroke_width=3, stroke_fill=stroke_color, anchor=anchor_align)
             return Image.alpha_composite(img, txt_layer).convert("RGB")
         except: return None
 
@@ -255,7 +261,7 @@ def update_fb_post(post_id, new_message):
 def reset_app_state():
     st.session_state['generated_posts'] = []
     st.session_state['ordered_images'] = []
-    st.session_state['last_uploaded_names'] = []
+    st.session_state['processed_file_names'] = []
     st.rerun()
 
 # ==========================================
@@ -266,7 +272,8 @@ check_fb_token_health()
 
 if 'generated_posts' not in st.session_state: st.session_state['generated_posts'] = []
 if 'ordered_images' not in st.session_state: st.session_state['ordered_images'] = []
-if 'last_uploaded_names' not in st.session_state: st.session_state['last_uploaded_names'] = []
+# 使用 processed_file_names 來紀錄已經處理過的檔案，方便無限追加上傳
+if 'processed_file_names' not in st.session_state: st.session_state['processed_file_names'] = []
 if 'watermark_pos' not in st.session_state: st.session_state['watermark_pos'] = "右下角"
 if 'watermark_color' not in st.session_state: st.session_state['watermark_color'] = "專屬綠 (推薦)"
 
@@ -280,6 +287,7 @@ with tab1:
     
     if post_type == "🏠 專業售屋":
         with m_col1:
+            st.subheader("📝 核心資訊")
             name = st.text_input("🏠 物件名稱*", placeholder="例：大甲鎮瀾商圈美墅")
             address = st.text_input("📍 物件地址/路段", placeholder="例：大甲區中山路一段")
             price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
@@ -287,23 +295,29 @@ with tab1:
             land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
 
         with m_col2:
+            st.subheader("📏 規格細節")
             floor = st.text_input("🏢 樓層", placeholder="例：3樓 / 總樓層10樓")
             layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
             parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
             link = st.text_input("🔗 物件專屬網址", placeholder="大甲店官網首頁")
             features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
-            uploaded_files = st.file_uploader("📸 照片上傳", type=['jpg','png','jpeg'], accept_multiple_files=True)
+            
+            # 🌟 照片上傳區：支援多次補充上傳
+            uploaded_files = st.file_uploader("📸 照片上傳 (支援多次補傳、下方可刪除排序)", type=['jpg','png','jpeg'], accept_multiple_files=True)
             
     elif post_type == "🍜 在地生活圈":
         with m_col1:
+            st.subheader("🍜 分享主題")
             life_title = st.text_input("📍 主題/地點*", placeholder="例：鎮瀾宮旁無名粉腸")
             life_keywords = st.text_area("✨ 關鍵字或心得", placeholder="例：排隊、從小吃到大...", height=120)
             
         with m_col2:
+            st.subheader("📸 照片上傳")
             st.info("附上美食或風景照片，AI 會觀察寫得更生動喔！")
-            uploaded_files = st.file_uploader("上傳生活圈照片", type=['jpg','png','jpeg'], accept_multiple_files=True)
+            uploaded_files = st.file_uploader("上傳生活圈照片 (支援多次補傳)", type=['jpg','png','jpeg'], accept_multiple_files=True)
             
     with m_col3:
+        st.subheader("📅 多風格排程設定")
         if post_type == "🏠 專業售屋":
             selected_styles = st.multiselect("🎨 文案風格", ["在地專業", "溫馨感性", "限時急售", "精簡快訊", "空拍視野"], default=["精簡快訊"])
         else:
@@ -327,35 +341,53 @@ with tab1:
         else:
             post_schedules.append(now + timedelta(minutes=15))
 
+    # 🌟 無限次追加上傳的底層邏輯
     if uploaded_files:
-        current_names = [f.name for f in uploaded_files]
-        if st.session_state['last_uploaded_names'] != current_names:
-            st.session_state['ordered_images'] = [f.getvalue() for f in uploaded_files]
-            st.session_state['last_uploaded_names'] = current_names
+        for f in uploaded_files:
+            if f.name not in st.session_state['processed_file_names']:
+                st.session_state['ordered_images'].append(f.getvalue())
+                st.session_state['processed_file_names'].append(f.name)
 
+    if st.session_state['ordered_images']:
         st.markdown("---")
-        st.subheader("🖼️ 照片排序與浮水印設定")
+        st.subheader("🖼️ 照片排序、刪除與浮水印設定")
         col_pos, col_color = st.columns(2)
         with col_pos: watermark_pos = st.radio("📍 位置", ["右下角", "左下角", "置中"], horizontal=True, index=["右下角", "左下角", "置中"].index(st.session_state['watermark_pos']))
         with col_color: watermark_color = st.radio("🎨 顏色", ["經典白", "專屬綠 (推薦)", "亮眼黃"], horizontal=True, index=["經典白", "專屬綠 (推薦)", "亮眼黃"].index(st.session_state['watermark_color']))
             
-        st.session_state['watermark_pos'], st.session_state['watermark_color'] = watermark_pos, watermark_color
+        st.session_state['watermark_pos'] = watermark_pos
+        st.session_state['watermark_color'] = watermark_color
         
-        if st.session_state['ordered_images']:
-            cols = st.columns(len(st.session_state['ordered_images']))
-            for idx, img_bytes in enumerate(st.session_state['ordered_images']):
-                preview_img = AISmartHelper.add_watermark(img_bytes, watermark_pos, watermark_color)
-                with cols[idx]:
-                    if preview_img: st.image(preview_img, caption=f"發佈順序 {idx+1}", use_container_width=True)
-                    btn_col1, btn_col2 = st.columns(2)
-                    with btn_col1:
-                        if idx > 0 and st.button("⬅️", key=f"left_{idx}", use_container_width=True):
-                            st.session_state['ordered_images'][idx], st.session_state['ordered_images'][idx-1] = st.session_state['ordered_images'][idx-1], st.session_state['ordered_images'][idx]
-                            st.rerun()
-                    with btn_col2:
-                        if idx < len(st.session_state['ordered_images']) - 1 and st.button("➡️", key=f"right_{idx}", use_container_width=True):
-                            st.session_state['ordered_images'][idx], st.session_state['ordered_images'][idx+1] = st.session_state['ordered_images'][idx+1], st.session_state['ordered_images'][idx]
-                            st.rerun()
+        # 🌟 動態排版：每排顯示 4 張照片，美觀不擁擠
+        cols_per_row = 4
+        num_imgs = len(st.session_state['ordered_images'])
+        
+        for row_start in range(0, num_imgs, cols_per_row):
+            cols = st.columns(cols_per_row)
+            for j in range(cols_per_row):
+                idx = row_start + j
+                if idx < num_imgs:
+                    img_bytes = st.session_state['ordered_images'][idx]
+                    # 🌟 徹底修復：精準指定參數，避免字體變成「置中」
+                    preview_img = AISmartHelper.add_watermark(image_bytes=img_bytes, text="有巢氏台中大甲店", position_type=watermark_pos, color_theme=watermark_color)
+                    
+                    with cols[j]:
+                        if preview_img: st.image(preview_img, caption=f"發佈順序 {idx+1}", use_container_width=True)
+                        
+                        # 加入刪除按鈕
+                        btn_c1, btn_c2, btn_c3 = st.columns([1, 1, 1])
+                        with btn_c1:
+                            if idx > 0 and st.button("⬅️", key=f"l_{idx}"):
+                                st.session_state['ordered_images'][idx], st.session_state['ordered_images'][idx-1] = st.session_state['ordered_images'][idx-1], st.session_state['ordered_images'][idx]
+                                st.rerun()
+                        with btn_c2:
+                            if st.button("🗑️", key=f"del_{idx}"):
+                                st.session_state['ordered_images'].pop(idx)
+                                st.rerun()
+                        with btn_c3:
+                            if idx < num_imgs - 1 and st.button("➡️", key=f"r_{idx}"):
+                                st.session_state['ordered_images'][idx], st.session_state['ordered_images'][idx+1] = st.session_state['ordered_images'][idx+1], st.session_state['ordered_images'][idx]
+                                st.rerun()
 
     st.markdown("---")
     gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
@@ -402,7 +434,8 @@ with tab1:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         photo_ids = []
                         for file_bytes in st.session_state['ordered_images']:
-                            img = AISmartHelper.add_watermark(file_bytes, position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
+                            # 🌟 發佈時再次確保參數正確對應
+                            img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
                             pid, err = upload_photo_to_fb(img)
                             if pid: photo_ids.append(pid)
                         
@@ -499,12 +532,10 @@ with tab2:
                                     })
                                 except Exception: continue
                             
-                            # 🌟 廣告司令部：爆款偵測邏輯
                             if has_engagement_permission and parsed_posts:
                                 avg_eng = total_engagement / len(parsed_posts)
                                 top_post = max(parsed_posts, key=lambda x: x['engagement'])
                                 
-                                # 如果冠軍貼文的互動超過平均的 1.5 倍，且至少有互動，啟動司令部
                                 if top_post['engagement'] > 0 and top_post['engagement'] >= avg_eng * 1.5:
                                     st.error(f"🔥 **【廣告司令部警告】發現高潛力爆款！**(互動總數: {top_post['engagement']})")
                                     st.info(f"這篇貼文的互動率遠高於您的平均值 ({avg_eng:.1f})，強烈建議「打鐵趁熱」投放廣告來獲取精準客源！")
@@ -515,7 +546,6 @@ with tab2:
                                             st.markdown(ad_advice)
                                             
                                         st.markdown("---")
-                                        # 提供直接前往 FB 企業管理平台/廣告中心的捷徑
                                         fb_ad_url = f"https://business.facebook.com/latest/posts/published_posts?asset_id={FB_PAGE_ID}"
                                         st.markdown(f"🚀 [**點我直接前往 Meta 後台，對這篇文章下廣告！**]({fb_ad_url})")
 
