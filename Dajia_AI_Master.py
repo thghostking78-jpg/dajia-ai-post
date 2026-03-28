@@ -98,46 +98,68 @@ with st.sidebar:
 
 class AISmartHelper:
     @staticmethod
-    def generate_copy(data_dict, style="精簡快訊", image_bytes=None):
+    def generate_copy(data_dict, style="精簡快訊", image_bytes=None, post_type="🏠 專業售屋"):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
         
         details = "\n".join([f"{k}：{v}" for k, v in data_dict.items() if v])
         
-        style_prompts = {
-            "在地專業": "【專家分析視角】語氣穩重專業、客觀。著重於大甲區的地段發展潛力、市場行情對比、投資報酬與建築工法。讓買方覺得這是一筆『精準且保值』的決策。",
-            "溫馨感性": "【說故事視角】語氣溫暖但「不廢話」。簡單點出空間帶給家人的實用性與學區/生活圈便利性，勾勒成家願景，但仍須保持房仲的專業俐落。",
-            "限時急售": "【高 CP 值視角】語氣節奏快、具說服力。強調『單價優勢』、『市場稀有度』與『錯過可惜的絕佳賣點』，用市場數據或性價比來創造急迫感。",
-            "精簡快訊": "【直擊痛點視角】極簡風格，完全不廢話。去除所有形容詞，只留下買方最在意的核心賣點，適合講求效率的投資客或快速瀏覽的讀者。",
-            "空拍視野": "【上帝視角】語氣大氣開闊。專注描述基地面寬、地形方正、聯外道路動線與周邊無遮蔽的無敵視野，特別吸引高總價、重視大地坪或農地投資的客群。"
-        }
-        
-        link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
+        if post_type == "🏠 專業售屋":
+            style_prompts = {
+                "在地專業": "【專家分析視角】語氣穩重專業、客觀。著重於大甲區的地段發展潛力、市場行情對比、投資報酬與建築工法。讓買方覺得這是一筆『精準且保值』的決策。",
+                "溫馨感性": "【說故事視角】語氣溫暖但「不廢話」。簡單點出空間帶給家人的實用性與學區/生活圈便利性，勾勒成家願景，但仍須保持房仲的專業俐落。",
+                "限時急售": "【高 CP 值視角】語氣節奏快、具說服力。強調『單價優勢』、『市場稀有度』與『錯過可惜的絕佳賣點』，用市場數據或性價比來創造急迫感。",
+                "精簡快訊": "【直擊痛點視角】極簡風格，完全不廢話。去除所有形容詞，只留下買方最在意的核心賣點，適合講求效率的投資客或快速瀏覽的讀者。",
+                "空拍視野": "【上帝視角】語氣大氣開闊。專注描述基地面寬、地形方正、聯外道路動線與周邊無遮蔽的無敵視野，特別吸引高總價、重視大地坪或農地投資的客群。"
+            }
+            
+            link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
+            
+            prompt = f"""
+            你是一位台中大甲區的頂尖房仲行銷專家，目前在『有巢氏房屋大甲加盟店』服務。
+            請根據以下物件資訊，撰寫一份具備「高專業度」、且「不拖泥帶水」的 FB 貼文。
+            
+            【文案風格與語氣設定】: 
+            {style_prompts.get(style)}
+            
+            【物件資訊】:
+            {details}
+            
+            【貼文結構嚴格要求】 (請務必依照此順序排版)：
+            1. 【吸睛標題】：一行呈現，必須包含物件名稱與總價，簡潔有力。
+            2. 【物件基本資料】(優先顯示！)：直接將【物件資訊】轉化為清晰的條列式重點。
+            3. 【專業分析與視覺亮點】(取代長篇大論)：依據設定的風格，用 3~5 點「條列式」說明物件優勢。如果有附上照片，請觀察照片並提取真實視覺亮點自然融入。請收起過度浮誇的形容詞，改用精準、客觀的房產術語來打動買方。
+            4. 【動態標籤】：請根據物件特性，自動生成 2~3 個精準的 Hashtag。
+            5. 【排版規範】：段落之間必須空行，保持畫面乾淨專業。Emoji 僅作畫龍點睛，勿過度使用。
 
-        prompt = f"""
-        你是一位台中大甲區的頂尖房仲行銷專家，目前在『有巢氏房屋大甲加盟店』服務。
-        請根據以下物件資訊，撰寫一份具備「高專業度」、且「不拖泥帶水」的 FB 貼文。
-        
-        【文案風格與語氣設定】: 
-        {style_prompts.get(style)}
-        
-        【物件資訊】:
-        {details}
-        
-        【貼文結構嚴格要求】 (請務必依照此順序排版)：
-        1. 【吸睛標題】：一行呈現，必須包含物件名稱與總價，簡潔有力。
-        2. 【物件基本資料】(優先顯示！)：直接將【物件資訊】轉化為清晰的條列式重點。
-        3. 【專業分析與視覺亮點】(取代長篇大論)：依據設定的風格，用 3~5 點「條列式」說明物件優勢。如果有附上照片，請觀察照片並提取真實視覺亮點自然融入。請收起過度浮誇的形容詞，改用精準、客觀的房產術語來打動買方。
-        4. 【動態標籤】：請根據物件特性，自動生成 2~3 個精準的 Hashtag (不要自動帶入文昌祠，除非特色有寫)。
-        5. 【排版規範】：段落之間必須空行，保持畫面乾淨專業。Emoji 僅作畫龍點睛，勿過度使用。
+            【結尾格式要求】 (請原封不動放在文案最後):
+            ---
+            {link_text}🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
+            📞 **賞屋專線：04-26888050**
+            📍 **大甲區文武路99號**
+            #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產
+            """
+        else:
+            # 🍜 在地生活圈 專屬 Prompt
+            prompt = f"""
+            你是一位台中大甲區的頂尖房仲，目前在『有巢氏房屋大甲加盟店』服務。
+            請根據以下資訊，寫一篇「接地氣、有溫度」的在地生活圈 FB 貼文，用來圈粉和建立親和力。
 
-        【結尾格式要求】 (請原封不動放在文案最後):
-        ---
-        {link_text}🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
-        📞 **賞屋專線：04-26888050**
-        📍 **大甲區文武路99號**
-        #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產
-        """
-        
+            【主題/地點】：{data_dict.get('主題/地點')}
+            【關鍵字/心得】：{data_dict.get('關鍵字')}
+
+            【撰寫要求】：
+            1. 語氣要像在地人推薦朋友一樣自然、熱情，完全不要有賣房子的推銷感。
+            2. 觀察附上的照片（若有），將照片中的視覺細節生動地寫入文章中。
+            3. 文案長度適中，分段清晰，適度加上 Emoji 增加活潑感。
+            4. 在貼文的最後一段，用「一句話」巧妙自然地帶出你的身分，例如：「吃飽喝足，下午繼續去帶客戶看大甲好房！」或「大甲真的太棒了，想找大甲好屋隨時來找我聊聊！」。
+            5. 結尾必須包含以下聯絡資訊：
+            ---
+            🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
+            📞 **在地顧問專線：04-26888050**
+            📍 **大甲區文武路99號**
+            #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
+            """
+
         models_to_try = [
             "gemini-2.5-flash",
             "gemini-2.0-flash",
@@ -219,7 +241,7 @@ class AISmartHelper:
             return None
 
 # ==========================================
-# 4. FB API 溝通層 (新增修改與刪除排程功能)
+# 4. FB API 溝通層
 # ==========================================
 def upload_photo_to_fb(image_obj):
     if not image_obj: return None, "Image processing failed"
@@ -241,13 +263,11 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
     return requests.post(url, data=payload)
 
 def delete_fb_post(post_id):
-    """刪除指定的排程貼文"""
     url = f"https://graph.facebook.com/v25.0/{post_id}"
     payload = {'access_token': FB_TOKEN}
     return requests.delete(url, params=payload)
 
 def update_fb_post(post_id, new_message):
-    """修改指定的排程貼文文字"""
     url = f"https://graph.facebook.com/v25.0/{post_id}"
     payload = {'message': new_message, 'access_token': FB_TOKEN}
     return requests.post(url, data=payload)
@@ -275,36 +295,58 @@ if 'watermark_pos' not in st.session_state:
 if 'watermark_color' not in st.session_state:
     st.session_state['watermark_color'] = "專屬綠 (推薦)"
 
-# ✅ 擴增為三個 Tab 分頁
 tab1, tab2, tab3 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板", "🗓️ 預定排程管理"])
 
 with tab1:
+    # 🆕 新增：切換發文類型的選單
+    post_type = st.radio("📝 選擇發文類型", ["🏠 專業售屋", "🍜 在地生活圈"], horizontal=True)
+    st.markdown("---")
+    
     m_col1, m_col2, m_col3 = st.columns(3)
     
-    with m_col1:
-        st.subheader("📝 核心資訊")
-        name = st.text_input("🏠 物件名稱*", placeholder="例：大甲鎮瀾商圈美墅")
-        address = st.text_input("📍 物件地址/路段", placeholder="例：大甲區中山路一段 (買方最看重地點)")
-        price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
-        ping = st.number_input("📐 建坪 (坪)", min_value=0.0, step=0.1, value=45.0)
-        land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
+    # 根據選單動態顯示不同的輸入欄位
+    if post_type == "🏠 專業售屋":
+        with m_col1:
+            st.subheader("📝 核心資訊")
+            name = st.text_input("🏠 物件名稱*", placeholder="例：大甲鎮瀾商圈美墅")
+            address = st.text_input("📍 物件地址/路段", placeholder="例：大甲區中山路一段 (買方最看重地點)")
+            price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
+            ping = st.number_input("📐 建坪 (坪)", min_value=0.0, step=0.1, value=45.0)
+            land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
 
-    with m_col2:
-        st.subheader("📏 規格細節")
-        floor = st.text_input("🏢 樓層", placeholder="例：3樓 / 總樓層10樓 (透天填整棟)")
-        layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
-        parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
-        link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="若不填，預設帶入大甲店官網首頁")
-        features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
-        uploaded_files = st.file_uploader("📸 照片上傳 (支援後續手動排序)", type=['jpg','png','jpeg'], accept_multiple_files=True)
-
+        with m_col2:
+            st.subheader("📏 規格細節")
+            floor = st.text_input("🏢 樓層", placeholder="例：3樓 / 總樓層10樓 (透天填整棟)")
+            layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
+            parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
+            link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="若不填，預設帶入大甲店官網首頁")
+            features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
+            uploaded_files = st.file_uploader("📸 照片上傳 (支援後續手動排序)", type=['jpg','png','jpeg'], accept_multiple_files=True)
+            
+    elif post_type == "🍜 在地生活圈":
+        with m_col1:
+            st.subheader("🍜 分享主題")
+            life_title = st.text_input("📍 主題/地點*", placeholder="例：鎮瀾宮旁無名粉腸、鐵砧山風景區")
+            life_keywords = st.text_area("✨ 關鍵字或心得", placeholder="例：從小吃到大、大排長龍、風景超好適合遛小孩...", height=120)
+            
+        with m_col2:
+            st.subheader("📸 照片上傳")
+            st.info("附上美食或風景照片，AI 會觀察照片寫得更生動喔！")
+            uploaded_files = st.file_uploader("上傳生活圈照片", type=['jpg','png','jpeg'], accept_multiple_files=True)
+            
     with m_col3:
         st.subheader("📅 多風格排程設定")
-        selected_styles = st.multiselect(
-            "🎨 選擇要輪替的文案風格", 
-            ["在地專業", "溫馨感性", "限時急售", "精簡快訊", "空拍視野"], 
-            default=["精簡快訊"]
-        )
+        
+        # 根據發文類型動態決定風格選項
+        if post_type == "🏠 專業售屋":
+            selected_styles = st.multiselect(
+                "🎨 選擇要輪替的文案風格", 
+                ["在地專業", "溫馨感性", "限時急售", "精簡快訊", "空拍視野"], 
+                default=["精簡快訊"]
+            )
+        else:
+            selected_styles = ["在地生活"] # 生活圈不需要套用售屋風格
+            st.info("🎨 當前風格：親和力在地生活圈")
         
         mode = st.radio("發佈模式", ["⚡ 立即發佈", "📅 自訂多天排程"], horizontal=True)
         
@@ -315,7 +357,7 @@ with tab1:
         now = datetime.now(tw_tz)
         
         if mode == "📅 自訂多天排程":
-            num_posts = st.slider("📌 預計排程幾篇貼文？", 1, 10, 3)
+            num_posts = st.slider("📌 預計排程幾篇貼文？", 1, 10, 1 if post_type == "🍜 在地生活圈" else 3)
             
             st.markdown("👇 **請點擊日曆選擇每篇發佈的日期與時間**")
             for i in range(num_posts):
@@ -330,6 +372,7 @@ with tab1:
         else:
             post_schedules.append(now + timedelta(minutes=15))
 
+    # 🖼️ 浮水印預覽區與照片排序機制
     if uploaded_files:
         current_names = [f.name for f in uploaded_files]
         if st.session_state['last_uploaded_names'] != current_names:
@@ -370,42 +413,54 @@ with tab1:
     gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
 
     if gen_btn:
-        if not selected_styles:
-            st.error("❌ 請至少選擇一種文案風格！")
-        elif not name:
-            st.error("❌ 請填寫物件名稱！")
-        else:
+        # 防呆檢查
+        if post_type == "🏠 專業售屋":
+            if not selected_styles:
+                st.error("❌ 請至少選擇一種文案風格！")
+                st.stop()
+            if not name:
+                st.error("❌ 請填寫物件名稱！")
+                st.stop()
+                
             final_link = link if link.strip() else "https://shop.yungching.com.tw/0426888050"
-            
             data_payload = {
                 "物件名稱": name, "地址/路段": address, "總價": f"{price}萬", "建坪": f"{ping}坪", "地坪": f"{land_ping}坪",
                 "樓層": floor, "格局": layout, "車位": parking, "專屬網址": final_link, "特色": features
             }
+        elif post_type == "🍜 在地生活圈":
+            if not life_title:
+                st.error("❌ 請填寫生活圈分享的「主題/地點」！")
+                st.stop()
+            data_payload = {
+                "主題/地點": life_title,
+                "關鍵字": life_keywords
+            }
             
-            st.session_state['generated_posts'] = []
-            now = datetime.now(tw_tz)
-            
-            first_image_bytes = st.session_state['ordered_images'][0] if st.session_state['ordered_images'] else None
-            progress_text = st.empty()
-            
-            total_posts = len(post_schedules)
-            for i, target_dt in enumerate(post_schedules):
-                min_allowed_time = datetime.now(tw_tz) + timedelta(minutes=15)
-                if target_dt < min_allowed_time:
-                    target_dt = min_allowed_time
+        st.session_state['generated_posts'] = []
+        now = datetime.now(tw_tz)
+        
+        first_image_bytes = st.session_state['ordered_images'][0] if st.session_state['ordered_images'] else None
+        progress_text = st.empty()
+        
+        total_posts = len(post_schedules)
+        for i, target_dt in enumerate(post_schedules):
+            min_allowed_time = datetime.now(tw_tz) + timedelta(minutes=15)
+            if target_dt < min_allowed_time:
+                target_dt = min_allowed_time
 
-                current_style = selected_styles[i % len(selected_styles)]
-                progress_text.info(f"⏳ 正在生成第 {i+1}/{total_posts} 篇貼文 (風格：{current_style})...")
-                
-                copy_text = AISmartHelper.generate_copy(data_dict=data_payload, style=current_style, image_bytes=first_image_bytes)
-                
-                st.session_state['generated_posts'].append({
-                    "發文時間": target_dt,
-                    "風格": current_style,
-                    "文案": copy_text
-                })
+            current_style = selected_styles[i % len(selected_styles)]
+            progress_text.info(f"⏳ 正在生成第 {i+1}/{total_posts} 篇貼文 (類型：{post_type})...")
             
-            progress_text.success("✅ AI 批量生成完畢！請在下方預覽確認。")
+            # 傳遞 post_type 給生成函數
+            copy_text = AISmartHelper.generate_copy(data_dict=data_payload, style=current_style, image_bytes=first_image_bytes, post_type=post_type)
+            
+            st.session_state['generated_posts'].append({
+                "發文時間": target_dt,
+                "風格": "親和力推薦" if post_type == "🍜 在地生活圈" else current_style,
+                "文案": copy_text
+            })
+        
+        progress_text.success("✅ AI 生成完畢！請在下方預覽確認。")
 
     if st.session_state['generated_posts']:
         st.markdown("---")
@@ -623,7 +678,6 @@ with tab3:
                             p_id = p['id']
                             msg = p.get('message', '無文字內容')
                             
-                            # FB 會回傳 UNIX 時間戳
                             s_time_val = p.get('scheduled_publish_time')
                             try:
                                 if isinstance(s_time_val, int):
@@ -634,7 +688,6 @@ with tab3:
                                 s_time = str(s_time_val)
                             
                             with st.expander(f"⏰ 預計發佈時間：{s_time}"):
-                                # 允許修改文字
                                 new_msg = st.text_area("修改貼文內容", value=msg, height=200, key=f"edit_{p_id}")
                                 
                                 col_btn1, col_btn2 = st.columns(2)
