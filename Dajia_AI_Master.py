@@ -271,6 +271,7 @@ with tab1:
     with m_col1:
         st.subheader("📝 核心資訊")
         name = st.text_input("🏠 物件名稱*", placeholder="例：大甲鎮瀾商圈美墅")
+        address = st.text_input("📍 物件地址/路段", placeholder="例：大甲區中山路一段 (買方最看重地點)")
         price = st.number_input("💰 總價 (萬)", min_value=0, step=10, value=1200)
         ping = st.number_input("📐 建坪 (坪)", min_value=0.0, step=0.1, value=45.0)
         land_ping = st.number_input("🌲 地坪 (坪)", min_value=0.0, step=0.1, value=25.0)
@@ -365,7 +366,7 @@ with tab1:
             final_link = link if link.strip() else "https://shop.yungching.com.tw/0426888050"
             
             data_payload = {
-                "物件名稱": name, "總價": f"{price}萬", "建坪": f"{ping}坪", "地坪": f"{land_ping}坪",
+                "物件名稱": name, "地址/路段": address, "總價": f"{price}萬", "建坪": f"{ping}坪", "地坪": f"{land_ping}坪",
                 "樓層": floor, "格局": layout, "車位": parking, "專屬網址": final_link, "特色": features
             }
             
@@ -431,6 +432,14 @@ with tab1:
                             success_count = 0
                             for post in st.session_state['generated_posts']:
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 連續多週排程" else None
+                                
+                                # 🛡️ 防呆機制：發佈前一秒，再次檢查時間是否快過期 (FB 規定至少要大於當下 10 分鐘)
+                                if t_stamp:
+                                    current_ts = int(datetime.now(tw_tz).timestamp())
+                                    if t_stamp < current_ts + 600:
+                                        t_stamp = current_ts + 900
+                                        st.toast(f"⏳ 自動修正排程：貼文時間過於接近現在，已自動順延 15 分鐘！")
+
                                 fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
                                 
                                 if fb_res.status_code == 200:
@@ -503,7 +512,8 @@ with tab2:
                             err_code = posts_data['error'].get('code')
                             if err_code in [10, 100]:
                                 has_engagement_permission = False
-                                st.warning("⚠️ 目前的 FB Token 缺少讀取按讚與留言的權限 (pages_read_engagement)，已自動切換為「基本顯示模式」。若需觀看互動數據，請至 Meta 後台重新產生 Token。")
+                                fb_real_msg = posts_data['error'].get('message', '無詳細說明')
+                                st.warning(f"⚠️ 目前的 FB Token 缺少讀取按讚與留言的權限 (pages_read_engagement)，已自動切換為「基本顯示模式」。\nFB 回傳錯誤: {fb_real_msg}")
                                 
                                 # 自動降級：改用昨天安全的基本參數再次請求
                                 basic_params = {
