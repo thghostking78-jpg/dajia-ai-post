@@ -293,28 +293,33 @@ with tab1:
             default=["精簡快訊"]
         )
         
-        mode = st.radio("發佈模式", ["⚡ 立即發佈", "📅 連續多週排程"], horizontal=True)
+        mode = st.radio("發佈模式", ["⚡ 立即發佈", "📅 自訂多天排程"], horizontal=True)
         
-        schedule_weeks = 1
-        post_time = datetime.now(tw_tz).time()
-        start_date = datetime.now(tw_tz).date()
+        # 準備時間選單
+        time_options = [f"{h:02d}:{m:02d}" for h in range(7, 22) for m in (0, 30) if not (h==21 and m==30)]
+        default_idx = time_options.index("18:00") if "18:00" in time_options else 0
         
-        if mode == "📅 連續多週排程":
-            time_options = []
-            for h in range(7, 22):
-                time_options.append(f"{h:02d}:00")
-                if h != 21: 
-                    time_options.append(f"{h:02d}:30")
+        post_schedules = []
+        now = datetime.now(tw_tz)
+        
+        if mode == "📅 自訂多天排程":
+            # 讓用戶選總共要發幾篇
+            num_posts = st.slider("📌 預計排程幾篇貼文？", 1, 10, 3)
             
-            col_w, col_t = st.columns(2)
-            with col_w:
-                start_date = st.date_input("🗓️ 首篇發文日期", datetime.now(tw_tz).date())
-            with col_t:
-                default_idx = time_options.index("18:00") if "18:00" in time_options else 0
-                selected_time_str = st.selectbox("⏰ 發文時間", time_options, index=default_idx)
-            
-            post_time = datetime.strptime(selected_time_str, "%H:%M").time()
-            schedule_weeks = st.slider("連續排程未來幾週？ (最多8週)", 1, 8, 4)
+            st.markdown("👇 **請點擊日曆選擇每篇發佈的日期與時間**")
+            for i in range(num_posts):
+                col_d, col_t = st.columns(2)
+                with col_d:
+                    # 預設每兩天排一篇，使用者可自由點開日曆修改
+                    d = st.date_input(f"🗓️ 第 {i+1} 篇日期", now.date() + timedelta(days=i*2), key=f"d_{i}")
+                with col_t:
+                    t_str = st.selectbox(f"⏰ 第 {i+1} 篇時間", time_options, index=default_idx, key=f"t_{i}")
+                
+                t_obj = datetime.strptime(t_str, "%H:%M").time()
+                post_schedules.append(tw_tz.localize(datetime.combine(d, t_obj)))
+        else:
+            # 如果是立即發佈，預設放入一個 15 分鐘後的時間
+            post_schedules.append(now + timedelta(minutes=15))
 
     # 🖼️ 浮水印預覽區與照片排序機制
     if uploaded_files:
@@ -376,19 +381,15 @@ with tab1:
             first_image_bytes = st.session_state['ordered_images'][0] if st.session_state['ordered_images'] else None
             progress_text = st.empty()
             
-            for i in range(schedule_weeks):
-                if mode == "📅 連續多週排程":
-                    target_date = start_date + timedelta(days=i * 7)
-                    target_dt = tw_tz.localize(datetime.combine(target_date, post_time))
-                else:
-                    target_dt = now + timedelta(minutes=15 + i*1)
-                
-                min_allowed_time = now + timedelta(minutes=15)
+            total_posts = len(post_schedules)
+            for i, target_dt in enumerate(post_schedules):
+                # 確保就算挑了過去或很近的時間，最低也要符合 FB 15 分鐘的安全值
+                min_allowed_time = datetime.now(tw_tz) + timedelta(minutes=15)
                 if target_dt < min_allowed_time:
                     target_dt = min_allowed_time
 
                 current_style = selected_styles[i % len(selected_styles)]
-                progress_text.info(f"⏳ 正在生成第 {i+1}/{schedule_weeks} 篇貼文 (風格：{current_style})...")
+                progress_text.info(f"⏳ 正在生成第 {i+1}/{total_posts} 篇貼文 (風格：{current_style})...")
                 
                 copy_text = AISmartHelper.generate_copy(data_dict=data_payload, style=current_style, image_bytes=first_image_bytes)
                 
@@ -431,7 +432,7 @@ with tab1:
                             status.write("📝 正在排程貼文...")
                             success_count = 0
                             for post in st.session_state['generated_posts']:
-                                t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 連續多週排程" else None
+                                t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
                                 
                                 # 🛡️ 防呆機制：發佈前一秒，再次檢查時間是否快過期 (FB 規定至少要大於當下 10 分鐘)
                                 if t_stamp:
