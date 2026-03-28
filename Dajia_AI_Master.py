@@ -27,15 +27,11 @@ if GEMINI_KEY:
 tw_tz = pytz.timezone('Asia/Taipei')
 
 # ==========================================
-# 1. 智慧快取與多模型備援層 (緩解 429/404 問題)
+# 1. 智慧快取與多模型備援層
 # ==========================================
 
 @st.cache_data(show_spinner="AI 正在思考中...", ttl=3600)
 def get_cached_ai_response(prompt, model_name, image_bytes=None):
-    """
-    帶有快取機制的 AI 生成函數。
-    model_name 作為快取 Key 的一部分，確保不同模型的結果分開存放。
-    """
     model = genai.GenerativeModel(model_name)
     contents = [prompt]
     if image_bytes:
@@ -74,7 +70,6 @@ def check_password():
     return True
 
 def check_fb_token_health():
-    """檢查 FB Token 是否過期或失效 (全線使用 v25.0)"""
     if not FB_PAGE_ID or not FB_TOKEN:
         return
     url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}?fields=name&access_token={FB_TOKEN}"
@@ -89,7 +84,6 @@ def check_fb_token_health():
 if not check_password():
     st.stop()
 
-# 側邊欄控制
 with st.sidebar:
     st.title("⚙️ 系統控制")
     if st.button("🧹 清除 AI 快取 (重新生成文案)"):
@@ -133,7 +127,7 @@ class AISmartHelper:
         1. 【吸睛標題】：一行呈現，必須包含物件名稱與總價，簡潔有力。
         2. 【物件基本資料】(優先顯示！)：直接將【物件資訊】轉化為清晰的條列式重點。
         3. 【專業分析與視覺亮點】(取代長篇大論)：依據設定的風格，用 3~5 點「條列式」說明物件優勢。如果有附上照片，請觀察照片並提取真實視覺亮點自然融入。請收起過度浮誇的形容詞，改用精準、客觀的房產術語來打動買方。
-        4. 【動態標籤】：請根據物件特性，自動生成 2~3 個精準的 Hashtag。
+        4. 【動態標籤】：請根據物件特性，自動生成 2~3 個精準的 Hashtag (不要自動帶入文昌祠，除非特色有寫)。
         5. 【排版規範】：段落之間必須空行，保持畫面乾淨專業。Emoji 僅作畫龍點睛，勿過度使用。
 
         【結尾格式要求】 (請原封不動放在文案最後):
@@ -141,11 +135,9 @@ class AISmartHelper:
         {link_text}🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
         📞 **賞屋專線：04-26888050**
         📍 **大甲區文武路99號**
-        #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產 #文昌祠
+        #大甲房產 #大甲買屋 #有巢氏房屋 #台中房地產
         """
         
-        # --- 🚀 核心多重模型備援邏輯 (根據最新可用清單更新) ---
-        # 嘗試清單：2.5 Flash -> 2.0 Flash -> 系統預設最新 Flash -> 2.0 輕量版
         models_to_try = [
             "gemini-2.5-flash",
             "gemini-2.0-flash",
@@ -159,17 +151,17 @@ class AISmartHelper:
                 return get_cached_ai_response(prompt, model_name, image_bytes)
             except Exception as e:
                 last_error = str(e)
-                # 如果是額度問題 (429) 或 模型找不到 (404)，就換下一個試試
                 if "429" in last_error or "quota" in last_error.lower() or "404" in last_error:
                     st.toast(f"⚠️ {model_name} 暫時不可用，嘗試切換備援模型...")
+                    time.sleep(2)  # 加入安全緩衝時間，避免連續請求被擋
                     continue
                 else:
-                    break # 其他類型的錯誤就不再嘗試
+                    break 
         
         return f"❌ 所有模型備援皆失敗，最後錯誤訊息：{last_error}"
 
     @staticmethod
-    def add_watermark(image_bytes, text="有巢氏台中大甲店", position_type="右下角"):
+    def add_watermark(image_bytes, text="有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
             try:
@@ -203,17 +195,22 @@ class AISmartHelper:
                 position = (margin, h - th - margin)
             elif position_type == "置中":
                 position = ((w - tw) // 2, (h - th) // 2)
-            else: # 預設右下角
+            else: 
                 position = (w - tw - margin, h - th - margin)
             
-            # 畫陰影
+            if color_theme == "專屬綠 (推薦)":
+                main_color = (0, 153, 76, 240)    
+                stroke_color = (255, 255, 255, 255) 
+            elif color_theme == "亮眼黃":
+                main_color = (255, 215, 0, 240)     
+                stroke_color = (30, 30, 30, 255)    
+            else: 
+                main_color = (255, 255, 255, 240)   
+                stroke_color = (30, 30, 30, 255)    
+
             shadow_pos = (position[0] + 3, position[1] + 3)
-            draw.text(shadow_pos, text, font=font, fill=(0, 0, 0, 180))
-            
-            # 畫主文字與描邊
-            stroke_color = (30, 30, 30, 255) 
-            main_color = (255, 255, 255, 240) 
-            draw.text(position, text, font=font, fill=main_color, stroke_width=2, stroke_fill=stroke_color)
+            draw.text(shadow_pos, text, font=font, fill=(0, 0, 0, 150))
+            draw.text(position, text, font=font, fill=main_color, stroke_width=3, stroke_fill=stroke_color)
             
             return Image.alpha_composite(img, txt_layer).convert("RGB")
             
@@ -222,7 +219,7 @@ class AISmartHelper:
             return None
 
 # ==========================================
-# 4. FB API 溝通層 (全線使用 v25.0)
+# 4. FB API 溝通層
 # ==========================================
 def upload_photo_to_fb(image_obj):
     if not image_obj: return None, "Image processing failed"
@@ -245,21 +242,26 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
 
 def reset_app_state():
     st.session_state['generated_posts'] = []
-    st.session_state['uploaded_files_data'] = []
+    st.session_state['ordered_images'] = []
+    st.session_state['last_uploaded_names'] = []
     st.rerun()
 
 # ==========================================
 # 5. 主介面 UI
 # ==========================================
 st.title("🚀 發文小幫手 Master Pro")
-check_fb_token_health() # 檢查 Token 健康度
+check_fb_token_health() 
 
 if 'generated_posts' not in st.session_state:
     st.session_state['generated_posts'] = []
-if 'uploaded_files_data' not in st.session_state:
-    st.session_state['uploaded_files_data'] = []
+if 'ordered_images' not in st.session_state:
+    st.session_state['ordered_images'] = []
+if 'last_uploaded_names' not in st.session_state:
+    st.session_state['last_uploaded_names'] = []
 if 'watermark_pos' not in st.session_state:
     st.session_state['watermark_pos'] = "右下角"
+if 'watermark_color' not in st.session_state:
+    st.session_state['watermark_color'] = "專屬綠 (推薦)"
 
 tab1, tab2 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板"])
 
@@ -280,14 +282,14 @@ with tab1:
         parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
         link = st.text_input("🔗 物件專屬網址 (選填)", placeholder="若不填，預設帶入大甲店官網首頁")
         features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
-        uploaded_files = st.file_uploader("📸 照片 (建議 3-5 張)", type=['jpg','png','jpeg'], accept_multiple_files=True)
+        uploaded_files = st.file_uploader("📸 照片上傳 (支援後續手動排序)", type=['jpg','png','jpeg'], accept_multiple_files=True)
 
     with m_col3:
         st.subheader("📅 多風格排程設定")
         selected_styles = st.multiselect(
             "🎨 選擇要輪替的文案風格", 
             ["在地專業", "溫馨感性", "限時急售", "精簡快訊", "空拍視野"], 
-            default=["限時急售", "溫馨感性"]
+            default=["精簡快訊"]
         )
         
         mode = st.radio("發佈模式", ["⚡ 立即發佈", "📅 連續多週排程"], horizontal=True)
@@ -313,36 +315,53 @@ with tab1:
             post_time = datetime.strptime(selected_time_str, "%H:%M").time()
             schedule_weeks = st.slider("連續排程未來幾週？ (最多8週)", 1, 8, 4)
 
-    # 🖼️ 浮水印預覽區 (多圖並排)
+    # 🖼️ 浮水印預覽區與照片排序機制
     if uploaded_files:
+        current_names = [f.name for f in uploaded_files]
+        if st.session_state['last_uploaded_names'] != current_names:
+            st.session_state['ordered_images'] = [f.getvalue() for f in uploaded_files]
+            st.session_state['last_uploaded_names'] = current_names
+
         st.markdown("---")
-        st.subheader("🖼️ 浮水印預覽與設定")
-        watermark_pos = st.radio("📍 選擇浮水印位置", ["右下角", "左下角", "置中"], horizontal=True)
-        st.session_state['watermark_pos'] = watermark_pos
+        st.subheader("🖼️ 照片排序與浮水印設定")
         
-        try:
-            cols = st.columns(len(uploaded_files))
-            for idx, file in enumerate(uploaded_files):
-                preview_img = AISmartHelper.add_watermark(file.getvalue(), position_type=watermark_pos)
-                if preview_img:
-                    with cols[idx]:
-                        st.image(preview_img, caption=f"預覽圖 {idx+1}", use_container_width=True)
-        except Exception as e:
-            st.warning("預覽生成中...")
+        col_pos, col_color = st.columns(2)
+        with col_pos:
+            watermark_pos = st.radio("📍 選擇浮水印位置", ["右下角", "左下角", "置中"], horizontal=True, index=["右下角", "左下角", "置中"].index(st.session_state['watermark_pos']))
+        with col_color:
+            watermark_color = st.radio("🎨 選擇浮水印顏色", ["經典白", "專屬綠 (推薦)", "亮眼黃"], horizontal=True, index=["經典白", "專屬綠 (推薦)", "亮眼黃"].index(st.session_state['watermark_color']))
+            
+        st.session_state['watermark_pos'] = watermark_pos
+        st.session_state['watermark_color'] = watermark_color
+        
+        if st.session_state['ordered_images']:
+            cols = st.columns(len(st.session_state['ordered_images']))
+            for idx, img_bytes in enumerate(st.session_state['ordered_images']):
+                preview_img = AISmartHelper.add_watermark(img_bytes, position_type=watermark_pos, color_theme=watermark_color)
+                with cols[idx]:
+                    if preview_img:
+                        st.image(preview_img, caption=f"發佈順序 {idx+1}", use_container_width=True)
+                    
+                    # 排序按鈕
+                    btn_col1, btn_col2 = st.columns(2)
+                    with btn_col1:
+                        if idx > 0 and st.button("⬅️", key=f"left_{idx}", use_container_width=True):
+                            st.session_state['ordered_images'][idx], st.session_state['ordered_images'][idx-1] = st.session_state['ordered_images'][idx-1], st.session_state['ordered_images'][idx]
+                            st.rerun()
+                    with btn_col2:
+                        if idx < len(st.session_state['ordered_images']) - 1 and st.button("➡️", key=f"right_{idx}", use_container_width=True):
+                            st.session_state['ordered_images'][idx], st.session_state['ordered_images'][idx+1] = st.session_state['ordered_images'][idx+1], st.session_state['ordered_images'][idx]
+                            st.rerun()
 
     st.markdown("---")
     gen_btn = st.button("🤖 啟動 AI 批量生成", type="primary", use_container_width=True)
 
-    # --- 邏輯處理 ---
     if gen_btn:
         if not selected_styles:
             st.error("❌ 請至少選擇一種文案風格！")
         elif not name:
             st.error("❌ 請填寫物件名稱！")
         else:
-            if uploaded_files:
-                st.session_state['uploaded_files_data'] = [file.getvalue() for file in uploaded_files]
-            
             final_link = link if link.strip() else "https://shop.yungching.com.tw/0426888050"
             
             data_payload = {
@@ -353,7 +372,7 @@ with tab1:
             st.session_state['generated_posts'] = []
             now = datetime.now(tw_tz)
             
-            first_image_bytes = st.session_state['uploaded_files_data'][0] if st.session_state['uploaded_files_data'] else None
+            first_image_bytes = st.session_state['ordered_images'][0] if st.session_state['ordered_images'] else None
             progress_text = st.empty()
             
             for i in range(schedule_weeks):
@@ -380,7 +399,6 @@ with tab1:
             
             progress_text.success("✅ AI 批量生成完畢！請在下方預覽確認。")
 
-    # --- 預覽與確認發佈 ---
     if st.session_state['generated_posts']:
         st.markdown("---")
         st.subheader("👀 貼文預覽與修改")
@@ -394,16 +412,17 @@ with tab1:
         col_submit, col_reset = st.columns([3, 1])
         with col_submit:
             if st.button("🚀 確認無誤，全部排程至 Facebook", type="primary", use_container_width=True):
-                if not st.session_state['uploaded_files_data']:
+                if not st.session_state['ordered_images']:
                     st.error("❌ 至少要有一張照片才能發佈喔！")
                 else:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         status.write("🖼️ 正在處理浮水印並上傳照片...")
                         photo_ids = []
                         selected_pos = st.session_state.get('watermark_pos', '右下角')
+                        selected_color = st.session_state.get('watermark_color', '專屬綠 (推薦)')
                         
-                        for idx, file_bytes in enumerate(st.session_state['uploaded_files_data']):
-                            img = AISmartHelper.add_watermark(file_bytes, position_type=selected_pos)
+                        for idx, file_bytes in enumerate(st.session_state['ordered_images']):
+                            img = AISmartHelper.add_watermark(file_bytes, position_type=selected_pos, color_theme=selected_color)
                             pid, err = upload_photo_to_fb(img)
                             if pid: photo_ids.append(pid)
                         
@@ -432,11 +451,11 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 6. Tab 2: 粉專成效儀表板
+# 6. Tab 2: 粉專成效儀表板 (升級防呆版)
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁營運戰情室")
-    st.markdown("追蹤您的粉專成長軌跡與近期發文紀錄。(註：因 Meta API 進階審查限制，互動數據需至 FB 後台查看)")
+    st.markdown("追蹤您的粉專成長軌跡與近期發文紀錄。")
     
     if st.button("🔄 撈取最新營運數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
@@ -459,45 +478,106 @@ with tab2:
                         
                         st.success(f"✅ 成功連線至粉專：**{page_name}**")
                         
-                        # 2. 獲取近期發文紀錄
-                        posts_url = f"{api_base}/published_posts"
-                        posts_params = {
-                            'fields': 'created_time,message,permalink_url',
-                            'limit': 15,
-                            'access_token': FB_TOKEN
-                        }
-                        posts_res = requests.get(posts_url, params=posts_params)
-                        posts_data = posts_res.json()
-                        
-                        # 3. 數據解析與呈現
                         met_col1, met_col2 = st.columns(2)
                         met_col1.metric("👥 總粉絲專頁讚數", f"{int(fan_count):,}")
                         met_col2.metric("🔔 總追蹤人數", f"{int(followers_count):,}")
                         
                         st.markdown("---")
-                        st.subheader("📝 近期發文軌跡 (最新 15 篇)")
                         
+                        # 2. 獲取近期發文紀錄 (嘗試進階參數)
+                        posts_url = f"{api_base}/published_posts"
+                        
+                        # 先嘗試抓取包含讚數與留言數的參數
+                        advanced_params = {
+                            'fields': 'created_time,message,permalink_url,likes.summary(true),comments.summary(true)',
+                            'limit': 15,
+                            'access_token': FB_TOKEN
+                        }
+                        
+                        posts_res = requests.get(posts_url, params=advanced_params)
+                        posts_data = posts_res.json()
+                        
+                        # 檢查是否遭遇 #10 或 #100 錯誤
+                        has_engagement_permission = True
+                        if 'error' in posts_data:
+                            err_code = posts_data['error'].get('code')
+                            if err_code in [10, 100]:
+                                has_engagement_permission = False
+                                st.warning("⚠️ 目前的 FB Token 缺少讀取按讚與留言的權限 (pages_read_engagement)，已自動切換為「基本顯示模式」。若需觀看互動數據，請至 Meta 後台重新產生 Token。")
+                                
+                                # 自動降級：改用昨天安全的基本參數再次請求
+                                basic_params = {
+                                    'fields': 'created_time,message,permalink_url',
+                                    'limit': 15,
+                                    'access_token': FB_TOKEN
+                                }
+                                posts_res = requests.get(posts_url, params=basic_params)
+                                posts_data = posts_res.json()
+                            else:
+                                st.error(f"❌ 獲取貼文失敗：{posts_data['error']['message']}")
+                                posts_data = {'data': []}
+
                         posts = posts_data.get('data', [])
+                        
                         if not posts:
                             st.info("近期尚無貼文紀錄。")
                         else:
-                            for idx, p in enumerate(posts):
+                            parsed_posts = []
+                            seven_days_ago = datetime.now(tw_tz) - timedelta(days=7)
+                            top_post = None
+                            max_engagement = -1
+                            
+                            for p in posts:
                                 try:
                                     c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                                    msg_preview = p.get('message', '無文字內容 (可能僅有照片或影片)')[:80].replace('\n', ' ') + "..."
-                                    post_link = p.get('permalink_url', '#')
+                                    msg = p.get('message', '無文字內容 (可能僅有照片或影片)')
+                                    url = p.get('permalink_url', '#')
                                     
-                                    with st.container():
-                                        col_time, col_msg, col_link = st.columns([2, 5, 1])
-                                        with col_time:
-                                            st.markdown(f"**🗓️ {c_time.strftime('%Y-%m-%d %H:%M')}**")
-                                        with col_msg:
-                                            st.text(msg_preview)
-                                        with col_link:
-                                            st.markdown(f"[🔗 看成效]({post_link})")
-                                        st.divider()
+                                    # 如果有權限，就抓取數據；沒權限就預設為 0
+                                    likes = p.get('likes', {}).get('summary', {}).get('total_count', 0) if has_engagement_permission else 0
+                                    comments = p.get('comments', {}).get('summary', {}).get('total_count', 0) if has_engagement_permission else 0
+                                    engagement = likes + comments
+                                    
+                                    parsed_posts.append({
+                                        'time': c_time,
+                                        'message': msg,
+                                        'url': url,
+                                        'engagement': engagement,
+                                        'likes': likes,
+                                        'comments': comments
+                                    })
+                                    
+                                    if has_engagement_permission and c_time > seven_days_ago and engagement > max_engagement and engagement > 0:
+                                        max_engagement = engagement
+                                        top_post = parsed_posts[-1]
+                                        
                                 except Exception:
                                     continue
+
+                            # 如果有抓到數據且有冠軍貼文，就顯示特別通知
+                            if has_engagement_permission and top_post:
+                                st.success(f"🔥 **本週成效冠軍發現！** (互動總數: {top_post['engagement']})")
+                                st.info(f"👍 按讚: {top_post['likes']} | 💬 留言: {top_post['comments']}\n\n內文片段：{top_post['message'][:50]}...\n\n[👉 點此查看貼文]({top_post['url']})")
+                                st.markdown("---")
+
+                            st.subheader("📝 近期發文軌跡 (最新 15 篇)")
+                            for p in parsed_posts:
+                                msg_preview = p['message'][:80].replace('\n', ' ') + "..."
+                                with st.container():
+                                    if has_engagement_permission:
+                                        # 進階顯示 (包含數據)
+                                        col_time, col_msg, col_eng, col_link = st.columns([2, 4, 1.5, 1])
+                                        with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
+                                        with col_msg: st.text(msg_preview)
+                                        with col_eng: st.markdown(f"👍 {p['likes']} | 💬 {p['comments']}")
+                                        with col_link: st.markdown(f"[🔗 看成效]({p['url']})")
+                                    else:
+                                        # 基本顯示 (安全的樣式)
+                                        col_time, col_msg, col_link = st.columns([2, 5, 1])
+                                        with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
+                                        with col_msg: st.text(msg_preview)
+                                        with col_link: st.markdown(f"[🔗 看成效]({p['url']})")
+                                    st.divider()
                                     
                 except Exception as e:
-                    st.error(f"連線失敗：{e}")
+                    st.error(f"系統發生預期外的錯誤：{e}")
