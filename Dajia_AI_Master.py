@@ -153,7 +153,7 @@ class AISmartHelper:
                 last_error = str(e)
                 if "429" in last_error or "quota" in last_error.lower() or "404" in last_error:
                     st.toast(f"⚠️ {model_name} 暫時不可用，嘗試切換備援模型...")
-                    time.sleep(2)  # 加入安全緩衝時間，避免連續請求被擋
+                    time.sleep(2)
                     continue
                 else:
                     break 
@@ -219,7 +219,7 @@ class AISmartHelper:
             return None
 
 # ==========================================
-# 4. FB API 溝通層
+# 4. FB API 溝通層 (新增修改與刪除排程功能)
 # ==========================================
 def upload_photo_to_fb(image_obj):
     if not image_obj: return None, "Image processing failed"
@@ -238,6 +238,18 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
         payload['scheduled_publish_time'] = scheduled_time
     for i, p_id in enumerate(photo_ids):
         payload[f'attached_media[{i}]'] = f'{{"media_fbid": "{p_id}"}}'
+    return requests.post(url, data=payload)
+
+def delete_fb_post(post_id):
+    """刪除指定的排程貼文"""
+    url = f"https://graph.facebook.com/v25.0/{post_id}"
+    payload = {'access_token': FB_TOKEN}
+    return requests.delete(url, params=payload)
+
+def update_fb_post(post_id, new_message):
+    """修改指定的排程貼文文字"""
+    url = f"https://graph.facebook.com/v25.0/{post_id}"
+    payload = {'message': new_message, 'access_token': FB_TOKEN}
     return requests.post(url, data=payload)
 
 def reset_app_state():
@@ -263,7 +275,8 @@ if 'watermark_pos' not in st.session_state:
 if 'watermark_color' not in st.session_state:
     st.session_state['watermark_color'] = "專屬綠 (推薦)"
 
-tab1, tab2 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板"])
+# ✅ 擴增為三個 Tab 分頁
+tab1, tab2, tab3 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板", "🗓️ 預定排程管理"])
 
 with tab1:
     m_col1, m_col2, m_col3 = st.columns(3)
@@ -295,7 +308,6 @@ with tab1:
         
         mode = st.radio("發佈模式", ["⚡ 立即發佈", "📅 自訂多天排程"], horizontal=True)
         
-        # 準備時間選單
         time_options = [f"{h:02d}:{m:02d}" for h in range(7, 22) for m in (0, 30) if not (h==21 and m==30)]
         default_idx = time_options.index("18:00") if "18:00" in time_options else 0
         
@@ -303,14 +315,12 @@ with tab1:
         now = datetime.now(tw_tz)
         
         if mode == "📅 自訂多天排程":
-            # 讓用戶選總共要發幾篇
             num_posts = st.slider("📌 預計排程幾篇貼文？", 1, 10, 3)
             
             st.markdown("👇 **請點擊日曆選擇每篇發佈的日期與時間**")
             for i in range(num_posts):
                 col_d, col_t = st.columns(2)
                 with col_d:
-                    # 預設每兩天排一篇，使用者可自由點開日曆修改
                     d = st.date_input(f"🗓️ 第 {i+1} 篇日期", now.date() + timedelta(days=i*2), key=f"d_{i}")
                 with col_t:
                     t_str = st.selectbox(f"⏰ 第 {i+1} 篇時間", time_options, index=default_idx, key=f"t_{i}")
@@ -318,10 +328,8 @@ with tab1:
                 t_obj = datetime.strptime(t_str, "%H:%M").time()
                 post_schedules.append(tw_tz.localize(datetime.combine(d, t_obj)))
         else:
-            # 如果是立即發佈，預設放入一個 15 分鐘後的時間
             post_schedules.append(now + timedelta(minutes=15))
 
-    # 🖼️ 浮水印預覽區與照片排序機制
     if uploaded_files:
         current_names = [f.name for f in uploaded_files]
         if st.session_state['last_uploaded_names'] != current_names:
@@ -348,7 +356,6 @@ with tab1:
                     if preview_img:
                         st.image(preview_img, caption=f"發佈順序 {idx+1}", use_container_width=True)
                     
-                    # 排序按鈕
                     btn_col1, btn_col2 = st.columns(2)
                     with btn_col1:
                         if idx > 0 and st.button("⬅️", key=f"left_{idx}", use_container_width=True):
@@ -383,7 +390,6 @@ with tab1:
             
             total_posts = len(post_schedules)
             for i, target_dt in enumerate(post_schedules):
-                # 確保就算挑了過去或很近的時間，最低也要符合 FB 15 分鐘的安全值
                 min_allowed_time = datetime.now(tw_tz) + timedelta(minutes=15)
                 if target_dt < min_allowed_time:
                     target_dt = min_allowed_time
@@ -434,7 +440,6 @@ with tab1:
                             for post in st.session_state['generated_posts']:
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
                                 
-                                # 🛡️ 防呆機制：發佈前一秒，再次檢查時間是否快過期 (FB 規定至少要大於當下 10 分鐘)
                                 if t_stamp:
                                     current_ts = int(datetime.now(tw_tz).timestamp())
                                     if t_stamp < current_ts + 600:
@@ -450,7 +455,7 @@ with tab1:
                             
                             if success_count == len(st.session_state['generated_posts']):
                                 status.update(label="✅ 所有貼文排程成功！", state="complete")
-                                st.success(f"🎉 成功排程了 {success_count} 篇貼文！您可以到 Facebook 粉專後台查看。")
+                                st.success(f"🎉 成功排程了 {success_count} 篇貼文！您可以到 Facebook 粉專後台，或在『🗓️ 預定排程管理』分頁查看。")
                                 st.balloons()
                                 st.session_state['post_success'] = True
 
@@ -461,7 +466,7 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 6. Tab 2: 粉專成效儀表板 (升級防呆版)
+# 6. Tab 2: 粉專成效儀表板
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁營運戰情室")
@@ -475,7 +480,6 @@ with tab2:
                 api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
                 
                 try:
-                    # 1. 獲取粉專總粉絲數與追蹤數
                     page_params = {'fields': 'fan_count,followers_count,name', 'access_token': FB_TOKEN}
                     page_data = requests.get(api_base, params=page_params).json()
                     
@@ -494,10 +498,7 @@ with tab2:
                         
                         st.markdown("---")
                         
-                        # 2. 獲取近期發文紀錄 (嘗試進階參數)
                         posts_url = f"{api_base}/published_posts"
-                        
-                        # 先嘗試抓取包含讚數與留言數的參數
                         advanced_params = {
                             'fields': 'created_time,message,permalink_url,likes.summary(true),comments.summary(true)',
                             'limit': 15,
@@ -507,7 +508,6 @@ with tab2:
                         posts_res = requests.get(posts_url, params=advanced_params)
                         posts_data = posts_res.json()
                         
-                        # 檢查是否遭遇 #10 或 #100 錯誤
                         has_engagement_permission = True
                         if 'error' in posts_data:
                             err_code = posts_data['error'].get('code')
@@ -516,7 +516,6 @@ with tab2:
                                 fb_real_msg = posts_data['error'].get('message', '無詳細說明')
                                 st.warning(f"⚠️ 目前的 FB Token 缺少讀取按讚與留言的權限 (pages_read_engagement)，已自動切換為「基本顯示模式」。\nFB 回傳錯誤: {fb_real_msg}")
                                 
-                                # 自動降級：改用昨天安全的基本參數再次請求
                                 basic_params = {
                                     'fields': 'created_time,message,permalink_url',
                                     'limit': 15,
@@ -544,7 +543,6 @@ with tab2:
                                     msg = p.get('message', '無文字內容 (可能僅有照片或影片)')
                                     url = p.get('permalink_url', '#')
                                     
-                                    # 如果有權限，就抓取數據；沒權限就預設為 0
                                     likes = p.get('likes', {}).get('summary', {}).get('total_count', 0) if has_engagement_permission else 0
                                     comments = p.get('comments', {}).get('summary', {}).get('total_count', 0) if has_engagement_permission else 0
                                     engagement = likes + comments
@@ -565,7 +563,6 @@ with tab2:
                                 except Exception:
                                     continue
 
-                            # 如果有抓到數據且有冠軍貼文，就顯示特別通知
                             if has_engagement_permission and top_post:
                                 st.success(f"🔥 **本週成效冠軍發現！** (互動總數: {top_post['engagement']})")
                                 st.info(f"👍 按讚: {top_post['likes']} | 💬 留言: {top_post['comments']}\n\n內文片段：{top_post['message'][:50]}...\n\n[👉 點此查看貼文]({top_post['url']})")
@@ -576,14 +573,12 @@ with tab2:
                                 msg_preview = p['message'][:80].replace('\n', ' ') + "..."
                                 with st.container():
                                     if has_engagement_permission:
-                                        # 進階顯示 (包含數據)
                                         col_time, col_msg, col_eng, col_link = st.columns([2, 4, 1.5, 1])
                                         with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
                                         with col_msg: st.text(msg_preview)
                                         with col_eng: st.markdown(f"👍 {p['likes']} | 💬 {p['comments']}")
                                         with col_link: st.markdown(f"[🔗 看成效]({p['url']})")
                                     else:
-                                        # 基本顯示 (安全的樣式)
                                         col_time, col_msg, col_link = st.columns([2, 5, 1])
                                         with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
                                         with col_msg: st.text(msg_preview)
@@ -592,3 +587,75 @@ with tab2:
                                     
                 except Exception as e:
                     st.error(f"系統發生預期外的錯誤：{e}")
+
+# ==========================================
+# 7. Tab 3: 預定排程管理
+# ==========================================
+with tab3:
+    st.header("🗓️ 排程貼文管理")
+    st.markdown("查看並管理目前已經排程、尚未發佈的 Facebook 貼文。（請注意：若需修改照片，建議直接刪除此排程重新發布。）")
+    
+    if st.button("🔄 重新讀取排程清單"):
+        st.rerun()
+        
+    if not FB_PAGE_ID or not FB_TOKEN:
+        st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
+    else:
+        with st.spinner("正在向 Facebook 讀取您的排程資料..."):
+            url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/scheduled_posts"
+            params = {
+                'fields': 'id,message,scheduled_publish_time',
+                'access_token': FB_TOKEN
+            }
+            
+            try:
+                res = requests.get(url, params=params).json()
+                if 'error' in res:
+                    st.error(f"❌ 讀取失敗：{res['error']['message']}")
+                else:
+                    scheduled_posts = res.get('data', [])
+                    if not scheduled_posts:
+                        st.info("✅ 目前沒有任何等待發佈的排程貼文。")
+                    else:
+                        st.success(f"目前共有 **{len(scheduled_posts)}** 篇排程貼文準備發佈：")
+                        
+                        for p in scheduled_posts:
+                            p_id = p['id']
+                            msg = p.get('message', '無文字內容')
+                            
+                            # FB 會回傳 UNIX 時間戳
+                            s_time_val = p.get('scheduled_publish_time')
+                            try:
+                                if isinstance(s_time_val, int):
+                                    s_time = datetime.fromtimestamp(s_time_val, tw_tz).strftime('%Y-%m-%d %H:%M')
+                                else:
+                                    s_time = datetime.strptime(s_time_val, '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz).strftime('%Y-%m-%d %H:%M')
+                            except Exception:
+                                s_time = str(s_time_val)
+                            
+                            with st.expander(f"⏰ 預計發佈時間：{s_time}"):
+                                # 允許修改文字
+                                new_msg = st.text_area("修改貼文內容", value=msg, height=200, key=f"edit_{p_id}")
+                                
+                                col_btn1, col_btn2 = st.columns(2)
+                                with col_btn1:
+                                    if st.button("💾 儲存修改的文案", key=f"save_{p_id}", use_container_width=True):
+                                        update_res = update_fb_post(p_id, new_msg)
+                                        if update_res.status_code == 200:
+                                            st.success("✅ 修改成功！")
+                                            time.sleep(1)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ 修改失敗：{update_res.json()}")
+                                            
+                                with col_btn2:
+                                    if st.button("🗑️ 取消並刪除此排程", key=f"del_{p_id}", type="primary", use_container_width=True):
+                                        del_res = delete_fb_post(p_id)
+                                        if del_res.status_code == 200:
+                                            st.success("✅ 刪除成功！")
+                                            time.sleep(1)
+                                            st.rerun()
+                                        else:
+                                            st.error(f"❌ 刪除失敗：{del_res.json()}")
+            except Exception as e:
+                st.error(f"連線失敗：{e}")
