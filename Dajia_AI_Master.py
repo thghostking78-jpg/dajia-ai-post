@@ -131,8 +131,6 @@ class AISmartHelper:
 
             【結尾格式要求】 (請原封不動放在文案最後):
             ---
-        【結尾格式要求】 (請原封不動放在文案最後):
-            ---
             {link_text}🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
             📞 **賞屋專線：04-26888050**
             📍 **大甲區文武路99號**
@@ -446,20 +444,44 @@ with tab1:
                             pid, err = upload_photo_to_fb(img)
                             if pid: photo_ids.append(pid)
                         
+                        # ======== 🌟 修正後的排程防護與重試邏輯 ========
                         if photo_ids:
                             success_count = 0
+                            
+                            # 🌟 關鍵防護 1：給 Facebook 伺服器 3 秒鐘的時間，處理並儲存剛剛上傳的圖片
+                            time.sleep(3) 
+
                             for post in st.session_state['generated_posts']:
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
                                 if t_stamp:
                                     current_ts = int(datetime.now(tw_tz).timestamp())
-                                    if t_stamp < current_ts + 600:
-                                        t_stamp = current_ts + 900
-                                        st.toast(f"⏳ 自動修正排程：貼文時間過於接近現在，已自動順延 15 分鐘！")
+                                    
+                                    # 🌟 關鍵防護 2：將安全距離從 600秒 (10分) 拉長到 900秒 (15分)
+                                    if t_stamp < current_ts + 900:
+                                        t_stamp = current_ts + 1200 # 直接順延 20 分鐘最保險
+                                        st.toast("⏳ 自動修正排程：貼文時間過於接近現在，已自動順延 20 分鐘！")
 
-                                fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
-                                if fb_res.status_code == 200: success_count += 1
-                                else: st.error(f"❌ 某篇貼文排程失敗：{fb_res.json()}")
-                            
+                                # 🌟 關鍵防護 3：加入自動重試機制 (Retry)
+                                max_retries = 3
+                                for attempt in range(max_retries):
+                                    fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
+                                    
+                                    if fb_res.status_code == 200: 
+                                        success_count += 1
+                                        break # 發佈/排程成功，跳出重試迴圈
+                                    else: 
+                                        err_data = fb_res.json()
+                                        err_is_transient = err_data.get('error', {}).get('is_transient', False)
+                                        
+                                        if err_is_transient and attempt < max_retries - 1:
+                                            wait_time = 2 + attempt
+                                            st.toast(f"⚠️ FB 伺服器忙碌中，{wait_time} 秒後自動重試...")
+                                            time.sleep(wait_time) 
+                                        else:
+                                            st.error(f"❌ 某篇貼文排程失敗：{err_data}")
+                                            break
+                            # ===============================================
+
                             if success_count == len(st.session_state['generated_posts']):
                                 status.update(label="✅ 所有貼文排程成功！", state="complete")
                                 st.success(f"🎉 成功排程了 {success_count} 篇貼文！")
