@@ -59,7 +59,7 @@ def check_password():
     if "password_correct" not in st.session_state:
         st.session_state["password_correct"] = False
     if not st.session_state["password_correct"]:
-        st.warning("🔒 有巢氏大甲店內部專用系統")
+        st.warning("🔒 內部專用系統")
         pwd = st.text_input("輸入通關密語", type="password")
         if pwd == st.secrets.get("SYSTEM_PWD", "9988"):
             st.session_state["password_correct"] = True
@@ -113,7 +113,7 @@ class AISmartHelper:
             }
             link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
             prompt = f"""
-            你是一位台中大甲區的頂尖房仲行銷專家，目前在『有巢氏房屋大甲加盟店』服務。
+            你是一位台中大甲區的頂尖房仲行銷專家，目前在『翔禾不動產（有巢氏房屋大甲加盟店）』服務。
             請根據以下物件資訊，撰寫一份具備「高專業度」、且「不拖泥帶水」的 FB 貼文。
             
             【文案風格與語氣設定】: 
@@ -131,7 +131,7 @@ class AISmartHelper:
 
             【結尾格式要求】 (請原封不動放在文案最後):
             ---
-            {link_text}🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
+            {link_text}🏠 **翔禾不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
             📞 **賞屋專線：04-26888050**
             📍 **大甲區文武路99號**
             📝 **經紀業特許字號:府地價字09901380561**
@@ -140,7 +140,7 @@ class AISmartHelper:
             """
         else:
             prompt = f"""
-            你是一位台中大甲區的頂尖房仲，目前在『有巢氏房屋大甲加盟店』服務。
+            你是一位台中大甲區的頂尖房仲，目前在『翔禾不動產（有巢氏房屋大甲加盟店）』服務。
             請根據以下資訊，寫一篇「接地氣、有溫度」的在地生活圈 FB 貼文，用來圈粉和建立親和力。
 
             【主題/地點】：{data_dict.get('主題/地點')}
@@ -153,7 +153,7 @@ class AISmartHelper:
             4. 結尾必須包含以下聯絡資訊：
             
             ---
-            🏠 **有巢氏房屋台中大甲店 (孔子廟對面)**
+            🏠 **翔禾不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
             📞 **在地顧問專線：04-26888050**
             📍 **大甲區文武路99號**
             📝 **經紀業特許字號:府地價字09901380561**
@@ -194,7 +194,7 @@ class AISmartHelper:
             return "無法生成廣告建議，請稍後再試。"
 
     @staticmethod
-    def add_watermark(image_bytes, text="有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
+    def add_watermark(image_bytes, text="翔禾不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
             try:
@@ -214,7 +214,6 @@ class AISmartHelper:
             
             margin = int(w * 0.03)
             
-            # 🌟 徹底修復：使用精準錨點對齊 (anchor)，保證不跑版錯位
             if position_type == "左下角": 
                 pos = (margin, h - margin)
                 anchor_align = "ld"
@@ -277,7 +276,6 @@ check_fb_token_health()
 
 if 'generated_posts' not in st.session_state: st.session_state['generated_posts'] = []
 if 'ordered_images' not in st.session_state: st.session_state['ordered_images'] = []
-# 使用 processed_file_names 來紀錄已經處理過的檔案，方便無限追加上傳
 if 'processed_file_names' not in st.session_state: st.session_state['processed_file_names'] = []
 if 'watermark_pos' not in st.session_state: st.session_state['watermark_pos'] = "右下角"
 if 'watermark_color' not in st.session_state: st.session_state['watermark_color'] = "專屬綠 (推薦)"
@@ -303,11 +301,13 @@ with tab1:
             st.subheader("📏 規格細節")
             floor = st.text_input("🏢 樓層", placeholder="例：3樓 / 總樓層10樓")
             layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
-            parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "門口停車"])
+            
+            # 🌟 在此處新增了「機械上層車位」與「機械下層車位」選項
+            parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "機械上層車位", "機械下層車位", "門口停車"])
+            
             link = st.text_input("🔗 物件專屬網址", placeholder="大甲店官網首頁")
             features = st.text_area("✨ 物件特色", placeholder="近學區、採光通風好...", height=70)
             
-            # 🌟 照片上傳區：支援多次補充上傳
             uploaded_files = st.file_uploader("📸 照片上傳 (支援多次補傳、下方可刪除排序)", type=['jpg','png','jpeg'], accept_multiple_files=True)
             
     elif post_type == "🍜 在地生活圈":
@@ -346,7 +346,6 @@ with tab1:
         else:
             post_schedules.append(now + timedelta(minutes=15))
 
-    # 🌟 無限次追加上傳的底層邏輯
     if uploaded_files:
         for f in uploaded_files:
             if f.name not in st.session_state['processed_file_names']:
@@ -363,7 +362,6 @@ with tab1:
         st.session_state['watermark_pos'] = watermark_pos
         st.session_state['watermark_color'] = watermark_color
         
-        # 🌟 動態排版：每排顯示 4 張照片，美觀不擁擠
         cols_per_row = 4
         num_imgs = len(st.session_state['ordered_images'])
         
@@ -373,13 +371,11 @@ with tab1:
                 idx = row_start + j
                 if idx < num_imgs:
                     img_bytes = st.session_state['ordered_images'][idx]
-                    # 🌟 徹底修復：精準指定參數，避免字體變成「置中」
-                    preview_img = AISmartHelper.add_watermark(image_bytes=img_bytes, text="有巢氏台中大甲店", position_type=watermark_pos, color_theme=watermark_color)
+                    preview_img = AISmartHelper.add_watermark(image_bytes=img_bytes, text="翔禾不動產 - 有巢氏台中大甲店", position_type=watermark_pos, color_theme=watermark_color)
                     
                     with cols[j]:
                         if preview_img: st.image(preview_img, caption=f"發佈順序 {idx+1}", use_container_width=True)
                         
-                        # 加入刪除按鈕
                         btn_c1, btn_c2, btn_c3 = st.columns([1, 1, 1])
                         with btn_c1:
                             if idx > 0 and st.button("⬅️", key=f"l_{idx}"):
@@ -439,36 +435,29 @@ with tab1:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         photo_ids = []
                         for file_bytes in st.session_state['ordered_images']:
-                            # 🌟 發佈時再次確保參數正確對應
-                            img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
+                            img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="翔禾不動產 - 有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
                             pid, err = upload_photo_to_fb(img)
                             if pid: photo_ids.append(pid)
                         
-                        # ======== 🌟 修正後的排程防護與重試邏輯 ========
                         if photo_ids:
                             success_count = 0
-                            
-                            # 🌟 關鍵防護 1：給 Facebook 伺服器 3 秒鐘的時間，處理並儲存剛剛上傳的圖片
                             time.sleep(3) 
 
                             for post in st.session_state['generated_posts']:
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
                                 if t_stamp:
                                     current_ts = int(datetime.now(tw_tz).timestamp())
-                                    
-                                    # 🌟 關鍵防護 2：將安全距離從 600秒 (10分) 拉長到 900秒 (15分)
                                     if t_stamp < current_ts + 900:
-                                        t_stamp = current_ts + 1200 # 直接順延 20 分鐘最保險
+                                        t_stamp = current_ts + 1200
                                         st.toast("⏳ 自動修正排程：貼文時間過於接近現在，已自動順延 20 分鐘！")
 
-                                # 🌟 關鍵防護 3：加入自動重試機制 (Retry)
                                 max_retries = 3
                                 for attempt in range(max_retries):
                                     fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
                                     
                                     if fb_res.status_code == 200: 
                                         success_count += 1
-                                        break # 發佈/排程成功，跳出重試迴圈
+                                        break
                                     else: 
                                         err_data = fb_res.json()
                                         err_is_transient = err_data.get('error', {}).get('is_transient', False)
@@ -480,7 +469,6 @@ with tab1:
                                         else:
                                             st.error(f"❌ 某篇貼文排程失敗：{err_data}")
                                             break
-                            # ===============================================
 
                             if success_count == len(st.session_state['generated_posts']):
                                 status.update(label="✅ 所有貼文排程成功！", state="complete")
