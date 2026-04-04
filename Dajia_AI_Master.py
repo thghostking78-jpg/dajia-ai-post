@@ -113,7 +113,7 @@ class AISmartHelper:
             }
             link_text = f"👉 **詳細資訊與更多照片請看：**\n{data_dict.get('專屬網址')}\n" if data_dict.get('專屬網址') else ""
             prompt = f"""
-            你是一位台中大甲區的頂尖房仲行銷專家，目前在『翔禾不動產（有巢氏房屋大甲加盟店）』服務。
+            你是一位台中大甲區的頂尖房仲行銷專家，目前在『翔豪不動產（有巢氏房屋大甲加盟店）』服務。
             請根據以下物件資訊，撰寫一份具備「高專業度」、且「不拖泥帶水」的 FB 貼文。
             
             【文案風格與語氣設定】: 
@@ -131,7 +131,7 @@ class AISmartHelper:
 
             【結尾格式要求】 (請原封不動放在文案最後):
             ---
-            {link_text}🏠 **翔禾不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
+            {link_text}🏠 **翔豪不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
             📞 **賞屋專線：04-26888050**
             📍 **大甲區文武路99號**
             📝 **經紀業特許字號:府地價字09901380561**
@@ -140,7 +140,7 @@ class AISmartHelper:
             """
         else:
             prompt = f"""
-            你是一位台中大甲區的頂尖房仲，目前在『翔禾不動產（有巢氏房屋大甲加盟店）』服務。
+            你是一位台中大甲區的頂尖房仲，目前在『翔豪不動產（有巢氏房屋大甲加盟店）』服務。
             請根據以下資訊，寫一篇「接地氣、有溫度」的在地生活圈 FB 貼文，用來圈粉和建立親和力。
 
             【主題/地點】：{data_dict.get('主題/地點')}
@@ -153,7 +153,7 @@ class AISmartHelper:
             4. 結尾必須包含以下聯絡資訊：
             
             ---
-            🏠 **翔禾不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
+            🏠 **翔豪不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
             📞 **在地顧問專線：04-26888050**
             📍 **大甲區文武路99號**
             📝 **經紀業特許字號:府地價字09901380561**
@@ -194,7 +194,7 @@ class AISmartHelper:
             return "無法生成廣告建議，請稍後再試。"
 
     @staticmethod
-    def add_watermark(image_bytes, text="翔禾不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
+    def add_watermark(image_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
             try:
@@ -371,7 +371,7 @@ with tab1:
                 idx = row_start + j
                 if idx < num_imgs:
                     img_bytes = st.session_state['ordered_images'][idx]
-                    preview_img = AISmartHelper.add_watermark(image_bytes=img_bytes, text="翔禾不動產 - 有巢氏台中大甲店", position_type=watermark_pos, color_theme=watermark_color)
+                    preview_img = AISmartHelper.add_watermark(image_bytes=img_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type=watermark_pos, color_theme=watermark_color)
                     
                     with cols[j]:
                         if preview_img: st.image(preview_img, caption=f"發佈順序 {idx+1}", use_container_width=True)
@@ -435,7 +435,7 @@ with tab1:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         photo_ids = []
                         for file_bytes in st.session_state['ordered_images']:
-                            img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="翔禾不動產 - 有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
+                            img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
                             pid, err = upload_photo_to_fb(img)
                             if pid: photo_ids.append(pid)
                         
