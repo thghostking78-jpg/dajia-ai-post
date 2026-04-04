@@ -302,7 +302,6 @@ with tab1:
             floor = st.text_input("🏢 樓層", placeholder="例：3樓 / 總樓層10樓")
             layout = st.text_input("🚪 格局", placeholder="如: 4房2廳3衛")
             
-            # 🌟 在此處新增了「機械上層車位」與「機械下層車位」選項
             parking = st.selectbox("🚗 車位", ["無", "自有車庫", "坡道平面", "機械上層車位", "機械下層車位", "門口停車"])
             
             link = st.text_input("🔗 物件專屬網址", placeholder="大甲店官網首頁")
@@ -428,53 +427,72 @@ with tab1:
 
         col_submit, col_reset = st.columns([3, 1])
         with col_submit:
+            # ==========================================
+            # 🌟 最新的排程與階梯式重試邏輯
+            # ==========================================
             if st.button("🚀 確認無誤，全部排程至 Facebook", type="primary", use_container_width=True):
                 if not st.session_state['ordered_images']:
                     st.error("❌ 至少要有一張照片才能發佈喔！")
                 else:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         photo_ids = []
-                        for file_bytes in st.session_state['ordered_images']:
+                        total_imgs = len(st.session_state['ordered_images'])
+                        
+                        # 🌟 升級防護 1：上傳圖片時加入短暫休息
+                        for idx, file_bytes in enumerate(st.session_state['ordered_images']):
+                            st.write(f"上傳照片中 ({idx+1}/{total_imgs})...")
                             img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
                             pid, err = upload_photo_to_fb(img)
-                            if pid: photo_ids.append(pid)
+                            if pid:
+                                photo_ids.append(pid)
+                            time.sleep(1) # 每一張圖片上傳後，強制休息 1 秒
                         
                         if photo_ids:
                             success_count = 0
-                            time.sleep(3) 
+                            
+                            # 🌟 升級防護 2：延長總緩衝時間
+                            st.write("⏳ 等待 FB 伺服器處理並同步圖片檔案 (約 8 秒)...")
+                            time.sleep(8) 
 
-                            for post in st.session_state['generated_posts']:
-                                t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
-                                if t_stamp:
-                                    current_ts = int(datetime.now(tw_tz).timestamp())
-                                    if t_stamp < current_ts + 900:
-                                        t_stamp = current_ts + 1200
-                                        st.toast("⏳ 自動修正排程：貼文時間過於接近現在，已自動順延 20 分鐘！")
-
-                                max_retries = 3
+                            for post_idx, post in enumerate(st.session_state['generated_posts']):
+                                st.write(f"準備排程第 {post_idx+1} 篇貼文...")
+                                
+                                # 🌟 升級防護 3：階梯式重試機制
+                                max_retries = 4
                                 for attempt in range(max_retries):
+                                    t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
+                                    if t_stamp:
+                                        current_ts = int(datetime.now(tw_tz).timestamp())
+                                        if t_stamp < current_ts + 600: 
+                                            t_stamp = current_ts + 900 
+                                            st.toast(f"⏳ 自動修正：貼文時間過於接近現在，已自動順延！")
+
                                     fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
                                     
                                     if fb_res.status_code == 200: 
                                         success_count += 1
+                                        st.write(f"✅ 第 {post_idx+1} 篇排程成功！")
                                         break
                                     else: 
                                         err_data = fb_res.json()
                                         err_is_transient = err_data.get('error', {}).get('is_transient', False)
+                                        err_code = err_data.get('error', {}).get('code')
                                         
-                                        if err_is_transient and attempt < max_retries - 1:
-                                            wait_time = 2 + attempt
-                                            st.toast(f"⚠️ FB 伺服器忙碌中，{wait_time} 秒後自動重試...")
+                                        if (err_is_transient or err_code == 2) and attempt < max_retries - 1:
+                                            wait_time = 3 * (attempt + 1)
+                                            st.toast(f"⚠️ FB 伺服器忙碌中，{wait_time} 秒後自動進行第 {attempt+2} 次重試...")
                                             time.sleep(wait_time) 
                                         else:
-                                            st.error(f"❌ 某篇貼文排程失敗：{err_data}")
+                                            st.error(f"❌ 第 {post_idx+1} 篇排程失敗：{err_data}")
                                             break
 
                             if success_count == len(st.session_state['generated_posts']):
-                                status.update(label="✅ 所有貼文排程成功！", state="complete")
+                                status.update(label="✅ 所有任務處理完畢！", state="complete")
                                 st.success(f"🎉 成功排程了 {success_count} 篇貼文！")
                                 st.balloons()
                                 st.session_state['post_success'] = True
+                            else:
+                                status.update(label="⚠️ 部分任務完成，請檢查上方錯誤訊息。", state="error")
 
         with col_reset:
             if st.session_state.get('post_success', False):
