@@ -256,6 +256,23 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
         payload[f'attached_media[{i}]'] = f'{{"media_fbid": "{p_id}"}}'
     return requests.post(f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/feed", data=payload)
 
+def post_video_to_fb(video_bytes, message, scheduled_time=None):
+    """新增：透過 Graph API 直接上傳並發佈/排程影片"""
+    url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/videos"
+    payload = {
+        'description': message,
+        'access_token': FB_TOKEN
+    }
+    if scheduled_time:
+        payload['published'] = 'false'
+        payload['scheduled_publish_time'] = scheduled_time
+
+    files = {
+        'source': ('veo_video.mp4', video_bytes, 'video/mp4')
+    }
+    # 影片檔案較大，設定 120 秒 timeout 防止中斷
+    return requests.post(url, data=payload, files=files, timeout=120)
+
 def delete_fb_post(post_id):
     return requests.delete(f"https://graph.facebook.com/v25.0/{post_id}", params={'access_token': FB_TOKEN})
 
@@ -266,6 +283,8 @@ def reset_app_state():
     st.session_state['generated_posts'] = []
     st.session_state['ordered_images'] = []
     st.session_state['processed_file_names'] = []
+    if 'uploaded_video' in st.session_state:
+        del st.session_state['uploaded_video']
     st.rerun()
 
 # ==========================================
@@ -351,6 +370,17 @@ with tab1:
                 st.session_state['ordered_images'].append(f.getvalue())
                 st.session_state['processed_file_names'].append(f.name)
 
+    # 🌟 新增：短影音上傳區塊
+    st.markdown("---")
+    st.subheader("🎥 短影音上傳 (Reels 格式)")
+    st.info("💡 系統發佈優先級：若同時有「照片」與「影片」，系統發佈時將強制發佈【影片】，無視照片排序與浮水印。")
+    uploaded_video = st.file_uploader("上傳 AI 生成的 30 秒內短影音 (支援 mp4, mov)", type=['mp4', 'mov'])
+    
+    if uploaded_video:
+        st.session_state['uploaded_video'] = uploaded_video.getvalue()
+    elif 'uploaded_video' in st.session_state:
+        del st.session_state['uploaded_video']
+
     if st.session_state['ordered_images']:
         st.markdown("---")
         st.subheader("🖼️ 照片排序、刪除與浮水印設定")
@@ -428,37 +458,41 @@ with tab1:
         col_submit, col_reset = st.columns([3, 1])
         with col_submit:
             # ==========================================
-            # 🌟 最新的排程邏輯：為每一篇貼文「獨立」上傳圖片，避免 ID 重複使用導致錯誤！
+            # 🌟 邏輯分流：同時支援「多張圖庫重試」與「單一短影音直發」
             # ==========================================
             if st.button("🚀 確認無誤，全部排程至 Facebook", type="primary", use_container_width=True):
-                if not st.session_state['ordered_images']:
-                    st.error("❌ 至少要有一張照片才能發佈喔！")
+                has_images = len(st.session_state.get('ordered_images', [])) > 0
+                has_video = 'uploaded_video' in st.session_state
+
+                if not has_images and not has_video:
+                    st.error("❌ 至少要上傳一張照片或一支影片才能發佈喔！")
                 else:
                     with st.status("正在將任務傳送至 Facebook 系統...", expanded=True) as status:
                         success_count = 0
-                        total_imgs = len(st.session_state['ordered_images'])
+                        total_imgs = len(st.session_state.get('ordered_images', []))
 
                         for post_idx, post in enumerate(st.session_state['generated_posts']):
                             st.write(f"🔄 準備處理第 {post_idx+1} 篇貼文...")
                             
-                            # 🌟 核心修正：把「上傳照片」移到迴圈內！每篇貼文都擁有自己的一批全新 photo_id
                             photo_ids = []
-                            for idx, file_bytes in enumerate(st.session_state['ordered_images']):
-                                st.write(f"  📸 為第 {post_idx+1} 篇上傳照片 ({idx+1}/{total_imgs})...")
-                                img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
-                                pid, err = upload_photo_to_fb(img)
-                                if pid:
-                                    photo_ids.append(pid)
-                                time.sleep(1) # 上傳緩衝
-                            
-                            if not photo_ids:
-                                st.error(f"❌ 第 {post_idx+1} 篇照片上傳失敗，跳過此篇。")
-                                continue
+                            # 若無影片，才走傳統圖片上傳路線
+                            if not has_video:
+                                for idx, file_bytes in enumerate(st.session_state['ordered_images']):
+                                    st.write(f"  📸 為第 {post_idx+1} 篇上傳照片 ({idx+1}/{total_imgs})...")
+                                    img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
+                                    pid, err = upload_photo_to_fb(img)
+                                    if pid:
+                                        photo_ids.append(pid)
+                                    time.sleep(1) # 上傳緩衝
                                 
-                            st.write("  ⏳ 等待 FB 伺服器同步圖片檔案 (約 5 秒)...")
-                            time.sleep(5) 
+                                if not photo_ids:
+                                    st.error(f"❌ 第 {post_idx+1} 篇照片上傳失敗，跳過此篇。")
+                                    continue
+                                    
+                                st.write("  ⏳ 等待 FB 伺服器同步圖片檔案 (約 5 秒)...")
+                                time.sleep(5) 
 
-                            # 🌟 升級防護 3：階梯式重試機制
+                            # 🌟 保留防護機制：階梯式重試
                             max_retries = 4
                             for attempt in range(max_retries):
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
@@ -468,7 +502,12 @@ with tab1:
                                         t_stamp = current_ts + 900 
                                         st.toast(f"⏳ 自動修正：貼文時間過於接近現在，已自動順延！")
 
-                                fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
+                                # 🎯 根據上傳型態分流呼叫對應 API
+                                if has_video:
+                                    if attempt == 0: st.write("  🎥 正在上傳短影音至 Facebook，檔案較大請稍候...")
+                                    fb_res = post_video_to_fb(st.session_state['uploaded_video'], post['文案'], scheduled_time=t_stamp)
+                                else:
+                                    fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
                                 
                                 if fb_res.status_code == 200: 
                                     success_count += 1
@@ -585,23 +624,23 @@ with tab2:
                                         fb_ad_url = f"https://business.facebook.com/latest/posts/published_posts?asset_id={FB_PAGE_ID}"
                                         st.markdown(f"🚀 [**點我直接前往 Meta 後台，對這篇文章下廣告！**]({fb_ad_url})")
 
-                            st.subheader("📝 近期發文軌跡 (最新 15 篇)")
-                            for p in parsed_posts:
-                                msg_preview = p['message'][:80].replace('\n', ' ') + "..."
-                                with st.container():
-                                    if has_engagement_permission:
-                                        col_time, col_msg, col_eng, col_link = st.columns([2, 4, 1.5, 1])
-                                        with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
-                                        with col_msg: st.text(msg_preview)
-                                        with col_eng: st.markdown(f"👍 {p['likes']} | 💬 {p['comments']}")
-                                        with col_link: st.markdown(f"[🔗 看貼文]({p['url']})")
-                                    else:
-                                        col_time, col_msg, col_link = st.columns([2, 5, 1])
-                                        with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
-                                        with col_msg: st.text(msg_preview)
-                                        with col_link: st.markdown(f"[🔗 看貼文]({p['url']})")
-                                    st.divider()
-                                    
+                        st.subheader("📝 近期發文軌跡 (最新 15 篇)")
+                        for p in parsed_posts:
+                            msg_preview = p['message'][:80].replace('\n', ' ') + "..."
+                            with st.container():
+                                if has_engagement_permission:
+                                    col_time, col_msg, col_eng, col_link = st.columns([2, 4, 1.5, 1])
+                                    with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
+                                    with col_msg: st.text(msg_preview)
+                                    with col_eng: st.markdown(f"👍 {p['likes']} | 💬 {p['comments']}")
+                                    with col_link: st.markdown(f"[🔗 看貼文]({p['url']})")
+                                else:
+                                    col_time, col_msg, col_link = st.columns([2, 5, 1])
+                                    with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
+                                    with col_msg: st.text(msg_preview)
+                                    with col_link: st.markdown(f"[🔗 看貼文]({p['url']})")
+                                st.divider()
+                                
                 except Exception as e:
                     st.error(f"系統發生預期外的錯誤：{e}")
 
