@@ -162,17 +162,17 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        # 🔧 【修復重點】：徹底移除已失效的 gemini-pro 與可能不支援的 gemini-2.0，確保穩定不斷線
-        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro"]
+        # 🔧 【修復重點】：日常排程使用最穩定的高額度模型
+        models_to_try = ["gemini-1.5-flash", "gemini-1.0-pro"]
         last_error = ""
         for model_name in models_to_try:
             try:
                 return get_cached_ai_response(prompt, model_name, image_bytes)
             except Exception as e:
                 last_error = str(e)
-                time.sleep(2)
+                time.sleep(1)
                 continue
-        return f"❌ 生成失敗：{last_error}"
+        return f"❌ 生成失敗 (請確認 API 金鑰有效性)：{last_error}"
 
     @staticmethod
     def generate_ad_advice(post_text):
@@ -238,16 +238,18 @@ class AISmartHelper:
         📝 **(103)中市經紀字第01306號**
         """
         
-        # 🔧 【修復重點】：雙層防呆機制，若指定使用的 2.5 版本無法讀取，自動降級為最強的 1.5-pro 旗艦版
-        try:
-            return get_cached_ai_response(prompt, "gemini-2.5-flash")
-        except Exception as e:
-            if "404" in str(e) or "not found" in str(e).lower() or "version" in str(e).lower():
-                try:
-                    return get_cached_ai_response(prompt, "gemini-1.5-pro")
-                except Exception as inner_e:
-                    return f"❌ 靈感生成失敗：{str(inner_e)}"
-            return f"❌ 靈感生成失敗：{str(e)}"
+        # 🔧 【修復重點】：陣列闖關機制！優先試用最新的 2.0，若 404 就自動切換 1.5，再不行就用 1.0，完全阻絕報錯。
+        models_to_try = ["gemini-2.0-flash", "gemini-1.5-flash", "gemini-1.0-pro"]
+        last_error = ""
+        
+        for model_name in models_to_try:
+            try:
+                return get_cached_ai_response(prompt, model_name)
+            except Exception as e:
+                last_error = str(e)
+                continue # 若報錯，無聲前往下一個模型重試
+                
+        return f"❌ 靈感生成失敗：您的 API Key 目前可能無法存取這些模型。\n最後錯誤紀錄：{last_error}"
 
     @staticmethod
     def generate_social_card(title_text, theme_type="大甲在地新聞"):
@@ -707,7 +709,7 @@ with tab3:
                         p_id, msg = p['id'], p.get('message', '')
                         s_time_val = p.get('scheduled_publish_time')
                         s_time = datetime.fromtimestamp(s_time_val, tw_tz).strftime('%Y-%m-%d %H:%M') if isinstance(s_time_val, int) else str(s_time_val)
-                        with st.expander(f"⏰ 預計發佈時間：{s_time}"):
+                        with st.expander(f"⏰ 預發佈時間：{s_time}"):
                             new_msg = st.text_area("修改貼文內容", value=msg, height=200, key=f"edit_{p_id}")
                             c1, c2 = st.columns(2)
                             with c1:
@@ -720,11 +722,11 @@ with tab3:
         except: pass
 
 # ==========================================
-# 8. Tab 4: 靈感大腦與動態製圖 (專屬 gemini-2.5-flash)
+# 8. Tab 4: 靈感大腦與動態製圖
 # ==========================================
 with tab4:
     st.header("🤖 靈感大腦與行情圖文產生器")
-    st.markdown("在此生成的文章將**優先啟用高階模型**。系統會自動鎖定特定客群撰寫文案，並產生具備專業權威感的數據分析圖卡！")
+    st.markdown("在此生成的文章將**自動啟用可用的高階模型**。系統會自動鎖定特定客群撰寫文案，並產生具備專業權威感的數據分析圖卡！")
     
     col_brain, col_preview = st.columns([1, 1])
     
@@ -749,20 +751,23 @@ with tab4:
                 with st.spinner(f"正在呼叫高階 AI 撰寫分析與繪製圖卡..."):
                     raw_result = AISmartHelper.generate_daily_inspiration(topic_type, additional_notes)
                     
-                    title_part = "大甲房市快訊"
-                    content_part = raw_result
-                    
-                    if "[圖文大標題]" in raw_result and "[貼文內文]" in raw_result:
-                        parts = raw_result.split("[貼文內文]")
-                        title_section = parts[0].replace("[圖文大標題]", "").strip()
-                        title_part = [line for line in title_section.split("\n") if line.strip()][0][:15] 
-                        content_part = parts[1].strip()
-                    
-                    st.session_state['temp_title'] = title_part
-                    st.session_state['temp_content'] = content_part
-                    
-                    img_bytes = AISmartHelper.generate_social_card(title_part, topic_type)
-                    st.session_state['temp_image_bytes'] = img_bytes
+                    if "❌" in raw_result:
+                        st.error(raw_result)
+                    else:
+                        title_part = "大甲房市快訊"
+                        content_part = raw_result
+                        
+                        if "[圖文大標題]" in raw_result and "[貼文內文]" in raw_result:
+                            parts = raw_result.split("[貼文內文]")
+                            title_section = parts[0].replace("[圖文大標題]", "").strip()
+                            title_part = [line for line in title_section.split("\n") if line.strip()][0][:15] 
+                            content_part = parts[1].strip()
+                        
+                        st.session_state['temp_title'] = title_part
+                        st.session_state['temp_content'] = content_part
+                        
+                        img_bytes = AISmartHelper.generate_social_card(title_part, topic_type)
+                        st.session_state['temp_image_bytes'] = img_bytes
                 
     with col_preview:
         if 'temp_content' in st.session_state:
