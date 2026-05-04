@@ -194,13 +194,32 @@ class AISmartHelper:
         except Exception:
             return "無法生成廣告建議，請稍後再試。"
 
-    # 🔧 【修改點】：讓靈感大腦強制輸出 [標題] 與 [內文] 兩種格式
+    # 🔧 【核心修改點】：針對「實價登錄行情分析」升級 Prompt，強制聚焦近半年最新數據與特定客群
     @staticmethod
     def generate_daily_inspiration(topic_type, additional_notes=""):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
+        
+        if topic_type == "📊 實價登錄與區域行情分析":
+            topic_guidance = """
+            這是一篇『最新區域行情與客群分析』文章。請根據使用者提供的區域與最新數據，嚴格遵守以下方向：
+            1. 聚焦「時效性」：解讀這些「最新（近半年或單月）」的價格走勢，帶出當前市場的真實氛圍。
+            2. 鎖定「特定客群」：明確指出這些最新價格對哪種潛在買方最有吸引力？（例如：為什麼最近首購族開始關注這裡？或是換屋族為何選擇這區？）引發客群共鳴。
+            3. 創造「急迫感」：用客觀權威的角度分析，創造出「現在正是進場看房」或「趁這波行情趕快委託」的氛圍。
+            4. 結尾行動呼籲：強烈邀請想在該區買賣的客戶，來找有巢氏大甲店進行『免費精準估價』與行情諮詢。
+            """
+        elif topic_type == "大甲在地新聞":
+            topic_guidance = "聚焦近期大甲的生活大小事、節慶、交通建設，語氣親切，拉近與鄉親的距離。"
+        elif topic_type == "房產知識通":
+            topic_guidance = "用簡單白話文解釋買賣房、貸款、稅務等知識，展現我們是不會騙人的誠實房仲專家。"
+        else:
+            topic_guidance = "摘要近期台灣或台中的房地產趨勢，並給出您對於大甲區影響的客觀建議。"
+
         prompt = f"""
         你是一位台中大甲區的資深房產行銷專家，目前在『翔豪不動產（有巢氏房屋大甲加盟店）』服務。
         請針對以下主題：【{topic_type}】，撰寫一篇能吸引大甲在地鄉親互動的 Facebook 貼文。
+        
+        【寫作指導】：
+        {topic_guidance}
         
         【重點提示與補充資訊】：
         {additional_notes if additional_notes else '無特定補充，請發揮在地房產專家的專業知識自由創作。'}
@@ -209,7 +228,7 @@ class AISmartHelper:
         [圖文大標題]
         (請在這裡寫一句 15 個字以內、非常吸睛的標題，絕對不能超過 15 個字，這句話將用來做成圖片)
         [貼文內文]
-        (請在這裡寫貼文內文。若主題是『在地新聞』請聚焦近期大甲大小事；若是『房產知識』請用白話文解釋；若是『動態』請給出專業建議。適當使用 Emoji，排版乾淨。)
+        (請在這裡寫貼文內文。適當使用 Emoji，排版乾淨，段落分明，方便手機閱讀。)
         
         ---
         🏠 **翔豪不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
@@ -223,35 +242,33 @@ class AISmartHelper:
         except Exception as e:
             return f"❌ 靈感生成失敗：{str(e)}"
 
-    # 🔧 【新增功能】：動態生成臉書 1080x1080 圖文卡片
     @staticmethod
     def generate_social_card(title_text, theme_type="大甲在地新聞"):
-        # 下載或讀取字體
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
             try:
                 urllib.request.urlretrieve("https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf", font_filename)
             except: pass 
 
-        # 建立 1080x1080 正方形背景
         width, height = 1080, 1080
         
-        # 根據主題設定底色
         if theme_type == "大甲在地新聞":
-            bg_color = (25, 60, 95)     # 深藍專業感
+            bg_color = (25, 60, 95)     
         elif theme_type == "房產知識通":
-            bg_color = (30, 90, 70)     # 有巢氏綠色系
+            bg_color = (30, 90, 70)     
+        elif theme_type == "📊 實價登錄與區域行情分析":
+            bg_color = (45, 45, 50)     
         else:
-            bg_color = (130, 45, 30)    # 趨勢動態橘紅色
+            bg_color = (130, 45, 30)    
 
         img = Image.new("RGB", (width, height), bg_color)
         draw = ImageDraw.Draw(img)
 
-        # 畫個簡單的白色邊框增加質感
         border_margin = 40
+        outline_color = (212, 175, 55) if theme_type == "📊 實價登錄與區域行情分析" else (255, 255, 255)
         draw.rectangle(
             [border_margin, border_margin, width - border_margin, height - border_margin],
-            outline=(255, 255, 255), width=8
+            outline=outline_color, width=8
         )
 
         try:
@@ -261,28 +278,24 @@ class AISmartHelper:
             font_title = ImageFont.load_default()
             font_subtitle = ImageFont.load_default()
 
-        # 自動換行標題文字 (每行約 8~10 字)
         wrapped_text = textwrap.fill(title_text, width=10)
         
-        # 繪製置中文字
         text_bbox = draw.textbbox((0, 0), wrapped_text, font=font_title)
         text_w = text_bbox[2] - text_bbox[0]
         text_h = text_bbox[3] - text_bbox[1]
         
         x = (width - text_w) / 2
-        y = (height - text_h) / 2 - 50  # 稍微偏上留空間給 Logo
+        y = (height - text_h) / 2 - 50  
         
-        # 加點文字陰影
         draw.multiline_text((x+5, y+5), wrapped_text, font=font_title, fill=(0,0,0,150), align="center")
-        draw.multiline_text((x, y), wrapped_text, font=font_title, fill=(255,255,255), align="center")
+        main_text_color = (255, 245, 200) if theme_type == "📊 實價登錄與區域行情分析" else (255, 255, 255)
+        draw.multiline_text((x, y), wrapped_text, font=font_title, fill=main_text_color, align="center")
 
-        # 底部加上店家資訊
         brand_text = "🏠 翔豪不動產 | 有巢氏房屋台中大甲店"
         bbox_brand = draw.textbbox((0, 0), brand_text, font=font_subtitle)
         brand_w = bbox_brand[2] - bbox_brand[0]
         draw.text(((width - brand_w) / 2, height - 150), brand_text, font=font_subtitle, fill=(200, 220, 200))
 
-        # 將 Image 轉為 Bytes
         buf = io.BytesIO()
         img.save(buf, format="JPEG", quality=95)
         return buf.getvalue()
@@ -703,60 +716,65 @@ with tab3:
 # 8. Tab 4: 靈感大腦與動態製圖 (專屬 gemini-2.5-flash)
 # ==========================================
 with tab4:
-    st.header("🤖 靈感大腦與自動圖文產生器")
-    st.markdown("在此生成的文章將**獨家啟用 Gemini 2.5 Flash**。系統會自動抓取金句，繪製成高質感的 Facebook 專屬圖卡，讓您無需再煩惱找圖！")
+    st.header("🤖 靈感大腦與行情圖文產生器")
+    st.markdown("在此生成的文章將**獨家啟用 Gemini 2.5 Flash**。系統會自動鎖定特定客群撰寫文案，並產生具備專業權威感的數據分析圖卡！")
     
     col_brain, col_preview = st.columns([1, 1])
     
     with col_brain:
-        st.subheader("💡 第一步：選擇主題並產出內容")
-        topic_type = st.selectbox("請選擇今日想發佈的主題類型：", ["大甲在地新聞", "房產知識通", "當日房市動態"])
-        additional_notes = st.text_input("📝 補充關鍵字 (選填)", placeholder="例如：大甲體育場旁、房地合一稅...")
+        st.subheader("💡 第一步：選擇主題與設定目標")
+        topic_type = st.selectbox("請選擇今日想發佈的主題類型：", ["大甲在地新聞", "房產知識通", "當日房市動態", "📊 實價登錄與區域行情分析"])
         
-        if st.button("✨ 立即生成靈感文案與字卡", type="primary", use_container_width=True):
-            with st.spinner(f"正在呼叫高階 AI 撰寫文案與繪製圖卡..."):
-                raw_result = AISmartHelper.generate_daily_inspiration(topic_type, additional_notes)
-                
-                # 解析 AI 輸出的 [圖文大標題] 與 [貼文內文]
-                title_part = "大甲房市快訊"
-                content_part = raw_result
-                
-                if "[圖文大標題]" in raw_result and "[貼文內文]" in raw_result:
-                    parts = raw_result.split("[貼文內文]")
-                    title_section = parts[0].replace("[圖文大標題]", "").strip()
-                    # 清理可能的多餘空行
-                    title_part = [line for line in title_section.split("\n") if line.strip()][0][:15] 
-                    content_part = parts[1].strip()
-                
-                # 存入 Session 供畫面顯示
-                st.session_state['temp_title'] = title_part
-                st.session_state['temp_content'] = content_part
-                
-                # 自動生成圖卡
-                img_bytes = AISmartHelper.generate_social_card(title_part, topic_type)
-                st.session_state['temp_image_bytes'] = img_bytes
+        # 🔧 【UI 修改點】：針對行情分析加入明確的「近半年/當月最新行情」輸入指引
+        if topic_type == "📊 實價登錄與區域行情分析":
+            with st.container():
+                st.info("🎯 **最新行情狙擊模式**：請輸入特定區域與「近半年或本月」最新實價，AI 會為您解析這波行情最吸引哪種客群出籠！")
+                target_area = st.text_input("📍 目標分析區域 (必填)", placeholder="例如：大甲體育場周邊、日南重劃區、大甲火車站前...")
+                price_data = st.text_input("💰 近半年 / 最新行情參考 (選填)", placeholder="例如：近半年透天成交約1200-1500萬，或本月新大樓單價站上28萬...")
+                additional_notes = f"分析區域：{target_area}\n近半年/最新行情參考：{price_data}"
+        else:
+            target_area = ""
+            additional_notes = st.text_input("📝 補充關鍵字 (選填)", placeholder="例如：大甲鎮瀾宮活動、房地合一稅...")
+        
+        if st.button("✨ 立即生成專業文案與字卡", type="primary", use_container_width=True):
+            if topic_type == "📊 實價登錄與區域行情分析" and not target_area:
+                st.error("❌ 請輸入「📍 目標分析區域」，AI 才能幫您鎖定客群喔！")
+            else:
+                with st.spinner(f"正在呼叫高階 AI 撰寫分析與繪製圖卡..."):
+                    raw_result = AISmartHelper.generate_daily_inspiration(topic_type, additional_notes)
+                    
+                    title_part = "大甲房市快訊"
+                    content_part = raw_result
+                    
+                    if "[圖文大標題]" in raw_result and "[貼文內文]" in raw_result:
+                        parts = raw_result.split("[貼文內文]")
+                        title_section = parts[0].replace("[圖文大標題]", "").strip()
+                        title_part = [line for line in title_section.split("\n") if line.strip()][0][:15] 
+                        content_part = parts[1].strip()
+                    
+                    st.session_state['temp_title'] = title_part
+                    st.session_state['temp_content'] = content_part
+                    
+                    img_bytes = AISmartHelper.generate_social_card(title_part, topic_type)
+                    st.session_state['temp_image_bytes'] = img_bytes
                 
     with col_preview:
         if 'temp_content' in st.session_state:
             st.subheader("🖼️ 第二步：預覽與發佈")
             
-            # 顯示自動生成的圖片
             st.image(st.session_state['temp_image_bytes'], caption=f"自動生成的金句圖卡 ({st.session_state['temp_title']})", use_container_width=True)
             
             st.markdown("**📝 生成的文案 (可自行微調)：**")
-            st.session_state['temp_content'] = st.text_area("文案內容", value=st.session_state['temp_content'], height=200, label_visibility="collapsed")
+            st.session_state['temp_content'] = st.text_area("文案內容", value=st.session_state['temp_content'], height=250, label_visibility="collapsed")
             
-            # 核心連動防呆按鈕
             if st.button("🚀 一鍵帶入到【Tab 1 發文排程區】", type="primary", use_container_width=True):
-                # 1. 把產生的字卡存入待發佈照片陣列
                 if 'ordered_images' not in st.session_state:
                     st.session_state['ordered_images'] = []
                 st.session_state['ordered_images'] = [st.session_state['temp_image_bytes']]
                 
-                # 2. 自動在 Tab 1 生成一筆排程任務 (預設 15 分鐘後發)
                 st.session_state['generated_posts'] = [{
                     "發文時間": datetime.now(tw_tz) + timedelta(minutes=15),
-                    "風格": "靈感大腦專屬",
+                    "風格": "行情分析與客群狙擊",
                     "文案": st.session_state['temp_content']
                 }]
                 
