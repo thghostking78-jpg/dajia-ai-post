@@ -161,7 +161,8 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+        # 🔧 降級修改：為了保留 2.5 額度給 Tab 4，日常的 generate_copy 改用較穩定的舊版模型為首選
+        models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"]
         last_error = ""
         for model_name in models_to_try:
             try:
@@ -189,9 +190,40 @@ class AISmartHelper:
         💡 **專家一句話提醒**：(給出一句這篇廣告該注意的重點，例如預算建議或受眾心理)
         """
         try:
-            return get_cached_ai_response(prompt, "gemini-2.5-flash")
+            return get_cached_ai_response(prompt, "gemini-1.5-flash") # 廣告建議也使用穩定版即可
         except Exception:
             return "無法生成廣告建議，請稍後再試。"
+
+    # 🔧 新增功能：專為 Tab 4 設計的「靈感大腦」，唯一指定使用高耗能的 gemini-2.5-flash
+    @staticmethod
+    def generate_daily_inspiration(topic_type, additional_notes=""):
+        if not GEMINI_KEY: return "⚠️ 找不到 API Key"
+        prompt = f"""
+        你是一位台中大甲區的資深房產行銷專家，目前在『翔豪不動產（有巢氏房屋大甲加盟店）』服務。
+        請針對以下主題：【{topic_type}】，撰寫一篇能吸引大甲在地鄉親互動的 Facebook 貼文。
+        
+        【重點提示與補充資訊】：
+        {additional_notes if additional_notes else '無特定補充，請發揮在地房產專家的專業知識自由創作。'}
+
+        【撰寫要求】：
+        1. 若主題是『大甲在地新聞』：聚焦近期大甲的生活大小事、節慶、建設，語氣親切。
+        2. 若主題是『房產知識通』：用簡單白話文解釋買賣房、貸款、稅務等知識，展現專業。
+        3. 若主題是『當日房市動態』：摘要近期台灣或台中的房地產趨勢，並給出您的客觀建議。
+        4. 排版要乾淨、適當使用 Emoji，不要有太多廢話，讓人好閱讀。
+
+        結尾請務必原封不動附上：
+        ---
+        🏠 **翔豪不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
+        📞 **在地顧問專線：04-26888050**
+        📍 **大甲區文武路99號**
+        📝 **經紀業特許字號:府地價字09901380561**
+        📝 **(103)中市經紀字第01306號**
+        """
+        try:
+            # 絕對強制：單獨在此處調用 gemini-2.5-flash
+            return get_cached_ai_response(prompt, "gemini-2.5-flash")
+        except Exception as e:
+            return f"❌ 靈感生成失敗：{str(e)}。可能因 gemini-2.5-flash 呼叫太頻繁，請稍後再試或清除快取。"
 
     @staticmethod
     def add_watermark(image_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
@@ -299,7 +331,13 @@ if 'processed_file_names' not in st.session_state: st.session_state['processed_f
 if 'watermark_pos' not in st.session_state: st.session_state['watermark_pos'] = "右下角"
 if 'watermark_color' not in st.session_state: st.session_state['watermark_color'] = "專屬綠 (推薦)"
 
-tab1, tab2, tab3 = st.tabs(["🚀 AI 自動發文與排程", "📊 粉專成效儀表板 (含廣告指揮所)", "🗓️ 預定排程管理"])
+# 🔧 擴充：將原本的 3 個 Tabs 改為 4 個
+tab1, tab2, tab3, tab4 = st.tabs([
+    "🚀 AI 自動發文與排程", 
+    "📊 粉專成效儀表板 (含廣告指揮所)", 
+    "🗓️ 預定排程管理", 
+    "🤖 靈感大腦與成效週報"
+])
 
 with tab1:
     post_type = st.radio("📝 選擇發文類型", ["🏠 專業售屋", "🍜 在地生活圈"], horizontal=True)
@@ -639,7 +677,7 @@ with tab2:
                                     with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
                                     with col_msg: st.text(msg_preview)
                                     with col_link: st.markdown(f"[🔗 看貼文]({p['url']})")
-                                st.divider()
+                            st.divider()
                                 
                 except Exception as e:
                     st.error(f"系統發生預期外的錯誤：{e}")
@@ -691,3 +729,69 @@ with tab3:
                                         else: st.error("❌ 刪除失敗")
             except Exception as e:
                 st.error(f"連線失敗：{e}")
+
+# ==========================================
+# 8. Tab 4: 靈感大腦與成效週報 (專屬 gemini-2.5-flash)
+# ==========================================
+with tab4:
+    st.header("🤖 靈感大腦與成效報告")
+    st.markdown("在此區塊生成的文章將**獨家啟用 Gemini 2.5 Flash 高階模型**，為您構思大甲在地新聞或知識型長文。產生後可直接複製到左方 Tab 1 進行配圖與排程發佈。")
+    
+    col_brain, col_report = st.columns([1.2, 1])
+    
+    with col_brain:
+        st.subheader("💡 呼叫高階靈感大腦 (隨時手動)")
+        st.info("⚠️ 注意：此功能耗用 API 額度較大，建議僅在需要構思「重點知識文」或「在地新聞」時使用。")
+        
+        topic_type = st.selectbox("請選擇今日想發佈的主題類型：", ["大甲在地新聞", "房產知識通", "當日房市動態"])
+        additional_notes = st.text_input("📝 補充關鍵字 (選填)", placeholder="例如：大甲體育場旁、房地合一稅提醒...")
+        
+        if st.button("✨ 立即生成靈感文案", type="primary", use_container_width=True):
+            with st.spinner(f"正在呼叫 Gemini 2.5 Flash 撰寫【{topic_type}】..."):
+                result_text = AISmartHelper.generate_daily_inspiration(topic_type, additional_notes)
+                st.session_state['temp_inspiration'] = result_text
+                
+        if 'temp_inspiration' in st.session_state:
+            st.success("✅ 文案已生成！您可以複製下方內容到 Tab 1 或直接發佈至粉專。")
+            st.text_area("生成結果 (可直接複製修改)：", value=st.session_state['temp_inspiration'], height=350)
+            
+    with col_report:
+        st.subheader("📊 近期成效總結 (快速戰報)")
+        st.write("寫文前沒靈感？看看過去 7 天大甲鄉親對什麼話題最感興趣。")
+        
+        if st.button("🔄 產生過去 7 天快速戰報", use_container_width=True):
+            with st.spinner("正在為您計算近期讚數與留言..."):
+                if not FB_PAGE_ID or not FB_TOKEN:
+                    st.error("⚠️ 缺少 FB API 設定。")
+                else:
+                    try:
+                        since_date = int((datetime.now(tw_tz) - timedelta(days=7)).timestamp())
+                        url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/published_posts"
+                        params = {
+                            'fields': 'message,likes.summary(true),comments.summary(true)',
+                            'since': since_date,
+                            'access_token': FB_TOKEN
+                        }
+                        res = requests.get(url, params=params).json()
+                        posts = res.get('data', [])
+                        
+                        if not posts:
+                            st.warning("過去 7 天內沒有找到貼文紀錄。")
+                        else:
+                            total_likes = sum([p.get('likes', {}).get('summary', {}).get('total_count', 0) for p in posts])
+                            total_comments = sum([p.get('comments', {}).get('summary', {}).get('total_count', 0) for p in posts])
+                            
+                            st.success("✅ 戰報整理完成！")
+                            st.markdown("### 📈 大甲有巢氏 - 近七日戰報")
+                            st.markdown(f"📝 **發布篇數**：{len(posts)} 篇")
+                            st.markdown(f"👍 **獲得總讚數**：{total_likes}")
+                            st.markdown(f"💬 **總留言互動**：{total_comments}")
+                            
+                            avg_likes = total_likes / len(posts)
+                            if avg_likes > 15:
+                                st.info("💡 **AI 總結**：本週鄉親互動熱烈！代表您目前的發文方向很對胃口，建議繼續保持！")
+                            else:
+                                st.info("💡 **AI 總結**：本週互動偏向穩定。您可以試著在左方選擇【大甲在地新聞】生成一篇比較有親和力的生活文來活絡版面喔！")
+                                
+                    except Exception as e:
+                        st.error(f"產出報告失敗：{e}")
