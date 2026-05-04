@@ -6,6 +6,7 @@ import pytz
 import os
 import urllib.request
 import time
+import textwrap
 from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import google.generativeai as genai
@@ -161,7 +162,6 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        # 🔧 降級修改：為了保留 2.5 額度給 Tab 4，日常的 generate_copy 改用較穩定的舊版模型為首選
         models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"]
         last_error = ""
         for model_name in models_to_try:
@@ -190,11 +190,11 @@ class AISmartHelper:
         💡 **專家一句話提醒**：(給出一句這篇廣告該注意的重點，例如預算建議或受眾心理)
         """
         try:
-            return get_cached_ai_response(prompt, "gemini-1.5-flash") # 廣告建議也使用穩定版即可
+            return get_cached_ai_response(prompt, "gemini-1.5-flash")
         except Exception:
             return "無法生成廣告建議，請稍後再試。"
 
-    # 🔧 新增功能：專為 Tab 4 設計的「靈感大腦」，唯一指定使用高耗能的 gemini-2.5-flash
+    # 🔧 【修改點】：讓靈感大腦強制輸出 [標題] 與 [內文] 兩種格式
     @staticmethod
     def generate_daily_inspiration(topic_type, additional_notes=""):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
@@ -205,13 +205,12 @@ class AISmartHelper:
         【重點提示與補充資訊】：
         {additional_notes if additional_notes else '無特定補充，請發揮在地房產專家的專業知識自由創作。'}
 
-        【撰寫要求】：
-        1. 若主題是『大甲在地新聞』：聚焦近期大甲的生活大小事、節慶、建設，語氣親切。
-        2. 若主題是『房產知識通』：用簡單白話文解釋買賣房、貸款、稅務等知識，展現專業。
-        3. 若主題是『當日房市動態』：摘要近期台灣或台中的房地產趨勢，並給出您的客觀建議。
-        4. 排版要乾淨、適當使用 Emoji，不要有太多廢話，讓人好閱讀。
-
-        結尾請務必原封不動附上：
+        【嚴格輸出格式】 (請務必使用特定的分隔符號)：
+        [圖文大標題]
+        (請在這裡寫一句 15 個字以內、非常吸睛的標題，絕對不能超過 15 個字，這句話將用來做成圖片)
+        [貼文內文]
+        (請在這裡寫貼文內文。若主題是『在地新聞』請聚焦近期大甲大小事；若是『房產知識』請用白話文解釋；若是『動態』請給出專業建議。適當使用 Emoji，排版乾淨。)
+        
         ---
         🏠 **翔豪不動產 - 有巢氏房屋台中大甲店 (孔子廟對面)**
         📞 **在地顧問專線：04-26888050**
@@ -220,10 +219,73 @@ class AISmartHelper:
         📝 **(103)中市經紀字第01306號**
         """
         try:
-            # 絕對強制：單獨在此處調用 gemini-2.5-flash
             return get_cached_ai_response(prompt, "gemini-2.5-flash")
         except Exception as e:
-            return f"❌ 靈感生成失敗：{str(e)}。可能因 gemini-2.5-flash 呼叫太頻繁，請稍後再試或清除快取。"
+            return f"❌ 靈感生成失敗：{str(e)}"
+
+    # 🔧 【新增功能】：動態生成臉書 1080x1080 圖文卡片
+    @staticmethod
+    def generate_social_card(title_text, theme_type="大甲在地新聞"):
+        # 下載或讀取字體
+        font_filename = "NotoSansCJKtc-Regular.otf"
+        if not os.path.exists(font_filename):
+            try:
+                urllib.request.urlretrieve("https://raw.githubusercontent.com/googlefonts/noto-cjk/main/Sans/OTF/TraditionalChinese/NotoSansCJKtc-Regular.otf", font_filename)
+            except: pass 
+
+        # 建立 1080x1080 正方形背景
+        width, height = 1080, 1080
+        
+        # 根據主題設定底色
+        if theme_type == "大甲在地新聞":
+            bg_color = (25, 60, 95)     # 深藍專業感
+        elif theme_type == "房產知識通":
+            bg_color = (30, 90, 70)     # 有巢氏綠色系
+        else:
+            bg_color = (130, 45, 30)    # 趨勢動態橘紅色
+
+        img = Image.new("RGB", (width, height), bg_color)
+        draw = ImageDraw.Draw(img)
+
+        # 畫個簡單的白色邊框增加質感
+        border_margin = 40
+        draw.rectangle(
+            [border_margin, border_margin, width - border_margin, height - border_margin],
+            outline=(255, 255, 255), width=8
+        )
+
+        try:
+            font_title = ImageFont.truetype(font_filename, 90)
+            font_subtitle = ImageFont.truetype(font_filename, 45)
+        except:
+            font_title = ImageFont.load_default()
+            font_subtitle = ImageFont.load_default()
+
+        # 自動換行標題文字 (每行約 8~10 字)
+        wrapped_text = textwrap.fill(title_text, width=10)
+        
+        # 繪製置中文字
+        text_bbox = draw.textbbox((0, 0), wrapped_text, font=font_title)
+        text_w = text_bbox[2] - text_bbox[0]
+        text_h = text_bbox[3] - text_bbox[1]
+        
+        x = (width - text_w) / 2
+        y = (height - text_h) / 2 - 50  # 稍微偏上留空間給 Logo
+        
+        # 加點文字陰影
+        draw.multiline_text((x+5, y+5), wrapped_text, font=font_title, fill=(0,0,0,150), align="center")
+        draw.multiline_text((x, y), wrapped_text, font=font_title, fill=(255,255,255), align="center")
+
+        # 底部加上店家資訊
+        brand_text = "🏠 翔豪不動產 | 有巢氏房屋台中大甲店"
+        bbox_brand = draw.textbbox((0, 0), brand_text, font=font_subtitle)
+        brand_w = bbox_brand[2] - bbox_brand[0]
+        draw.text(((width - brand_w) / 2, height - 150), brand_text, font=font_subtitle, fill=(200, 220, 200))
+
+        # 將 Image 轉為 Bytes
+        buf = io.BytesIO()
+        img.save(buf, format="JPEG", quality=95)
+        return buf.getvalue()
 
     @staticmethod
     def add_watermark(image_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
@@ -289,20 +351,13 @@ def post_to_feed(message, photo_ids, scheduled_time=None):
     return requests.post(f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/feed", data=payload)
 
 def post_video_to_fb(video_bytes, message, scheduled_time=None):
-    """新增：透過 Graph API 直接上傳並發佈/排程影片"""
     url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/videos"
-    payload = {
-        'description': message,
-        'access_token': FB_TOKEN
-    }
+    payload = {'description': message, 'access_token': FB_TOKEN}
     if scheduled_time:
         payload['published'] = 'false'
         payload['scheduled_publish_time'] = scheduled_time
 
-    files = {
-        'source': ('veo_video.mp4', video_bytes, 'video/mp4')
-    }
-    # 影片檔案較大，設定 120 秒 timeout 防止中斷
+    files = {'source': ('veo_video.mp4', video_bytes, 'video/mp4')}
     return requests.post(url, data=payload, files=files, timeout=120)
 
 def delete_fb_post(post_id):
@@ -331,12 +386,11 @@ if 'processed_file_names' not in st.session_state: st.session_state['processed_f
 if 'watermark_pos' not in st.session_state: st.session_state['watermark_pos'] = "右下角"
 if 'watermark_color' not in st.session_state: st.session_state['watermark_color'] = "專屬綠 (推薦)"
 
-# 🔧 擴充：將原本的 3 個 Tabs 改為 4 個
 tab1, tab2, tab3, tab4 = st.tabs([
     "🚀 AI 自動發文與排程", 
     "📊 粉專成效儀表板 (含廣告指揮所)", 
     "🗓️ 預定排程管理", 
-    "🤖 靈感大腦與成效週報"
+    "🤖 靈感大腦與動態製圖"
 ])
 
 with tab1:
@@ -408,7 +462,6 @@ with tab1:
                 st.session_state['ordered_images'].append(f.getvalue())
                 st.session_state['processed_file_names'].append(f.name)
 
-    # 🌟 新增：短影音上傳區塊
     st.markdown("---")
     st.subheader("🎥 短影音上傳 (Reels 格式)")
     st.info("💡 系統發佈優先級：若同時有「照片」與「影片」，系統發佈時將強制發佈【影片】，無視照片排序與浮水印。")
@@ -495,9 +548,6 @@ with tab1:
 
         col_submit, col_reset = st.columns([3, 1])
         with col_submit:
-            # ==========================================
-            # 🌟 邏輯分流：同時支援「多張圖庫重試」與「單一短影音直發」
-            # ==========================================
             if st.button("🚀 確認無誤，全部排程至 Facebook", type="primary", use_container_width=True):
                 has_images = len(st.session_state.get('ordered_images', [])) > 0
                 has_video = 'uploaded_video' in st.session_state
@@ -513,15 +563,13 @@ with tab1:
                             st.write(f"🔄 準備處理第 {post_idx+1} 篇貼文...")
                             
                             photo_ids = []
-                            # 若無影片，才走傳統圖片上傳路線
                             if not has_video:
                                 for idx, file_bytes in enumerate(st.session_state['ordered_images']):
                                     st.write(f"  📸 為第 {post_idx+1} 篇上傳照片 ({idx+1}/{total_imgs})...")
                                     img = AISmartHelper.add_watermark(image_bytes=file_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type=st.session_state['watermark_pos'], color_theme=st.session_state['watermark_color'])
                                     pid, err = upload_photo_to_fb(img)
-                                    if pid:
-                                        photo_ids.append(pid)
-                                    time.sleep(1) # 上傳緩衝
+                                    if pid: photo_ids.append(pid)
+                                    time.sleep(1)
                                 
                                 if not photo_ids:
                                     st.error(f"❌ 第 {post_idx+1} 篇照片上傳失敗，跳過此篇。")
@@ -530,7 +578,6 @@ with tab1:
                                 st.write("  ⏳ 等待 FB 伺服器同步圖片檔案 (約 5 秒)...")
                                 time.sleep(5) 
 
-                            # 🌟 保留防護機制：階梯式重試
                             max_retries = 4
                             for attempt in range(max_retries):
                                 t_stamp = int(post['發文時間'].timestamp()) if mode == "📅 自訂多天排程" else None
@@ -540,9 +587,8 @@ with tab1:
                                         t_stamp = current_ts + 900 
                                         st.toast(f"⏳ 自動修正：貼文時間過於接近現在，已自動順延！")
 
-                                # 🎯 根據上傳型態分流呼叫對應 API
                                 if has_video:
-                                    if attempt == 0: st.write("  🎥 正在上傳短影音至 Facebook，檔案較大請稍候...")
+                                    if attempt == 0: st.write("  🎥 正在上傳短影音至 Facebook...")
                                     fb_res = post_video_to_fb(st.session_state['uploaded_video'], post['文案'], scheduled_time=t_stamp)
                                 else:
                                     fb_res = post_to_feed(post['文案'], photo_ids, scheduled_time=t_stamp)
@@ -553,13 +599,8 @@ with tab1:
                                     break
                                 else: 
                                     err_data = fb_res.json()
-                                    err_is_transient = err_data.get('error', {}).get('is_transient', False)
-                                    err_code = err_data.get('error', {}).get('code')
-                                    
-                                    if (err_is_transient or err_code == 2) and attempt < max_retries - 1:
-                                        wait_time = 3 * (attempt + 1)
-                                        st.toast(f"⚠️ FB 伺服器忙碌中，{wait_time} 秒後自動進行第 {attempt+2} 次重試...")
-                                        time.sleep(wait_time) 
+                                    if (err_data.get('error', {}).get('is_transient', False) or err_data.get('error', {}).get('code') == 2) and attempt < max_retries - 1:
+                                        time.sleep(3 * (attempt + 1)) 
                                     else:
                                         st.error(f"❌ 第 {post_idx+1} 篇排程失敗：{err_data}")
                                         break
@@ -579,219 +620,145 @@ with tab1:
                     reset_app_state()
 
 # ==========================================
-# 6. Tab 2: 粉專成效儀表板 (🌟 廣告司令部升級版)
+# 6. Tab 2: 粉專成效儀表板
 # ==========================================
 with tab2:
     st.header("📈 粉絲專頁營運戰情室")
-    st.markdown("追蹤您的粉專成長軌跡。當發現「高互動爆款」時，系統會自動提供廣告投放建議！")
-    
     if st.button("🔄 撈取最新營運數據"):
         if not FB_PAGE_ID or not FB_TOKEN:
             st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
         else:
             with st.spinner("正在與 Facebook 連線，解析近期營運與潛力爆款中..."):
                 api_base = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}"
-                
                 try:
                     page_data = requests.get(api_base, params={'fields': 'fan_count,followers_count,name', 'access_token': FB_TOKEN}).json()
-                    
-                    if 'error' in page_data:
-                        st.error(f"❌ 無法撈取粉專資料：{page_data['error']['message']}")
-                    else:
-                        st.success(f"✅ 成功連線至粉專：**{page_data.get('name', '有巢氏台中大甲店')}**")
+                    if 'error' not in page_data:
+                        st.success(f"✅ 成功連線至粉專：**{page_data.get('name')}**")
                         met_col1, met_col2 = st.columns(2)
                         met_col1.metric("👥 總粉絲專頁讚數", f"{int(page_data.get('fan_count', 0)):,}")
                         met_col2.metric("🔔 總追蹤人數", f"{int(page_data.get('followers_count', 0)):,}")
                         st.markdown("---")
                         
-                        advanced_params = {
-                            'fields': 'id,created_time,message,permalink_url,likes.summary(true),comments.summary(true)',
-                            'limit': 15,
-                            'access_token': FB_TOKEN
-                        }
+                        posts_res = requests.get(f"{api_base}/published_posts", params={'fields': 'id,created_time,message,permalink_url,likes.summary(true),comments.summary(true)', 'limit': 15, 'access_token': FB_TOKEN}).json()
                         
-                        posts_res = requests.get(f"{api_base}/published_posts", params=advanced_params)
-                        posts_data = posts_res.json()
-                        
-                        has_engagement_permission = True
-                        if 'error' in posts_data:
-                            if posts_data['error'].get('code') in [10, 100]:
-                                has_engagement_permission = False
-                                st.warning("⚠️ 目前的 FB Token 缺少讀取按讚與留言的權限 (pages_read_engagement)，無法啟用「爆款偵測器」。已自動切換為基本模式。")
-                                posts_data = requests.get(f"{api_base}/published_posts", params={'fields': 'id,created_time,message,permalink_url', 'limit': 15, 'access_token': FB_TOKEN}).json()
-                            else:
-                                st.error(f"❌ 獲取貼文失敗：{posts_data['error']['message']}")
-                                posts_data = {'data': []}
+                        has_eng = True
+                        if 'error' in posts_res and posts_res['error'].get('code') in [10, 100]:
+                            has_eng = False
+                            posts_res = requests.get(f"{api_base}/published_posts", params={'fields': 'id,created_time,message,permalink_url', 'limit': 15, 'access_token': FB_TOKEN}).json()
 
-                        posts = posts_data.get('data', [])
-                        
-                        if not posts:
-                            st.info("近期尚無貼文紀錄。")
-                        else:
+                        posts = posts_res.get('data', [])
+                        if posts:
                             parsed_posts = []
                             total_engagement = 0
-                            
                             for p in posts:
                                 try:
                                     c_time = datetime.strptime(p['created_time'], '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz)
-                                    likes = p.get('likes', {}).get('summary', {}).get('total_count', 0) if has_engagement_permission else 0
-                                    comments = p.get('comments', {}).get('summary', {}).get('total_count', 0) if has_engagement_permission else 0
-                                    engagement = likes + comments
-                                    total_engagement += engagement
-                                    
-                                    parsed_posts.append({
-                                        'id': p.get('id'), 'time': c_time, 'message': p.get('message', '無文字內容'),
-                                        'url': p.get('permalink_url', '#'), 'engagement': engagement, 'likes': likes, 'comments': comments
-                                    })
-                                except Exception: continue
+                                    lks = p.get('likes', {}).get('summary', {}).get('total_count', 0) if has_eng else 0
+                                    cms = p.get('comments', {}).get('summary', {}).get('total_count', 0) if has_eng else 0
+                                    total_engagement += (lks + cms)
+                                    parsed_posts.append({'time': c_time, 'message': p.get('message', ''), 'url': p.get('permalink_url', '#'), 'likes': lks, 'comments': cms})
+                                except: continue
                             
-                            if has_engagement_permission and parsed_posts:
-                                avg_eng = total_engagement / len(parsed_posts)
-                                top_post = max(parsed_posts, key=lambda x: x['engagement'])
-                                
-                                if top_post['engagement'] > 0 and top_post['engagement'] >= avg_eng * 1.5:
-                                    st.error(f"🔥 **【廣告司令部警告】發現高潛力爆款！**(互動總數: {top_post['engagement']})")
-                                    st.info(f"這篇貼文的互動率遠高於您的平均值 ({avg_eng:.1f})，強烈建議「打鐵趁熱」投放廣告來獲取精準客源！")
-                                    
-                                    with st.expander("🤖 AI 專屬廣告投放策略建議 (點擊展開)", expanded=True):
-                                        with st.spinner("正在為您分析這篇貼文的最佳受眾..."):
-                                            ad_advice = AISmartHelper.generate_ad_advice(top_post['message'])
-                                            st.markdown(ad_advice)
-                                            
-                                        st.markdown("---")
-                                        fb_ad_url = f"https://business.facebook.com/latest/posts/published_posts?asset_id={FB_PAGE_ID}"
-                                        st.markdown(f"🚀 [**點我直接前往 Meta 後台，對這篇文章下廣告！**]({fb_ad_url})")
-
-                        st.subheader("📝 近期發文軌跡 (最新 15 篇)")
-                        for p in parsed_posts:
-                            msg_preview = p['message'][:80].replace('\n', ' ') + "..."
-                            with st.container():
-                                if has_engagement_permission:
+                            st.subheader("📝 近期發文軌跡 (最新 15 篇)")
+                            for p in parsed_posts:
+                                with st.container():
                                     col_time, col_msg, col_eng, col_link = st.columns([2, 4, 1.5, 1])
                                     with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
-                                    with col_msg: st.text(msg_preview)
+                                    with col_msg: st.text(p['message'][:80].replace('\n', ' ') + "...")
                                     with col_eng: st.markdown(f"👍 {p['likes']} | 💬 {p['comments']}")
                                     with col_link: st.markdown(f"[🔗 看貼文]({p['url']})")
-                                else:
-                                    col_time, col_msg, col_link = st.columns([2, 5, 1])
-                                    with col_time: st.markdown(f"**🗓️ {p['time'].strftime('%Y-%m-%d %H:%M')}**")
-                                    with col_msg: st.text(msg_preview)
-                                    with col_link: st.markdown(f"[🔗 看貼文]({p['url']})")
-                            st.divider()
-                                
-                except Exception as e:
-                    st.error(f"系統發生預期外的錯誤：{e}")
+                                st.divider()
+                except Exception as e: st.error(f"錯誤：{e}")
 
 # ==========================================
 # 7. Tab 3: 預定排程管理
 # ==========================================
 with tab3:
     st.header("🗓️ 排程貼文管理")
-    st.markdown("查看並管理目前已經排程、尚未發佈的 Facebook 貼文。")
-    
-    if st.button("🔄 重新讀取排程清單"):
-        st.rerun()
-        
-    if not FB_PAGE_ID or not FB_TOKEN:
-        st.error("⚠️ 缺少 FB_PAGE_ID 或 FB_TOKEN 設定。")
-    else:
-        with st.spinner("正在向 Facebook 讀取您的排程資料..."):
-            try:
-                res = requests.get(f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/scheduled_posts", params={'fields': 'id,message,scheduled_publish_time', 'access_token': FB_TOKEN}).json()
-                if 'error' in res:
-                    st.error(f"❌ 讀取失敗：{res['error']['message']}")
-                else:
-                    scheduled_posts = res.get('data', [])
-                    if not scheduled_posts:
-                        st.info("✅ 目前沒有任何等待發佈的排程貼文。")
-                    else:
-                        st.success(f"目前共有 **{len(scheduled_posts)}** 篇排程貼文準備發佈：")
-                        for p in scheduled_posts:
-                            p_id, msg = p['id'], p.get('message', '無文字內容')
-                            s_time_val = p.get('scheduled_publish_time')
-                            try:
-                                if isinstance(s_time_val, int): s_time = datetime.fromtimestamp(s_time_val, tw_tz).strftime('%Y-%m-%d %H:%M')
-                                else: s_time = datetime.strptime(s_time_val, '%Y-%m-%dT%H:%M:%S%z').astimezone(tw_tz).strftime('%Y-%m-%d %H:%M')
-                            except: s_time = str(s_time_val)
-                            
-                            with st.expander(f"⏰ 預計發佈時間：{s_time}"):
-                                new_msg = st.text_area("修改貼文內容", value=msg, height=200, key=f"edit_{p_id}")
-                                col_btn1, col_btn2 = st.columns(2)
-                                with col_btn1:
-                                    if st.button("💾 儲存修改的文案", key=f"save_{p_id}", use_container_width=True):
-                                        if update_fb_post(p_id, new_msg).status_code == 200:
-                                            st.success("✅ 修改成功！"); time.sleep(1); st.rerun()
-                                        else: st.error("❌ 修改失敗")
-                                with col_btn2:
-                                    if st.button("🗑️ 取消並刪除此排程", key=f"del_{p_id}", type="primary", use_container_width=True):
-                                        if delete_fb_post(p_id).status_code == 200:
-                                            st.success("✅ 刪除成功！"); time.sleep(1); st.rerun()
-                                        else: st.error("❌ 刪除失敗")
-            except Exception as e:
-                st.error(f"連線失敗：{e}")
+    if st.button("🔄 重新讀取排程清單"): st.rerun()
+    if FB_PAGE_ID and FB_TOKEN:
+        try:
+            res = requests.get(f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/scheduled_posts", params={'fields': 'id,message,scheduled_publish_time', 'access_token': FB_TOKEN}).json()
+            if 'error' not in res:
+                scheduled_posts = res.get('data', [])
+                if scheduled_posts:
+                    st.success(f"共有 **{len(scheduled_posts)}** 篇排程貼文：")
+                    for p in scheduled_posts:
+                        p_id, msg = p['id'], p.get('message', '')
+                        s_time_val = p.get('scheduled_publish_time')
+                        s_time = datetime.fromtimestamp(s_time_val, tw_tz).strftime('%Y-%m-%d %H:%M') if isinstance(s_time_val, int) else str(s_time_val)
+                        with st.expander(f"⏰ 預計發佈時間：{s_time}"):
+                            new_msg = st.text_area("修改貼文內容", value=msg, height=200, key=f"edit_{p_id}")
+                            c1, c2 = st.columns(2)
+                            with c1:
+                                if st.button("💾 儲存修改", key=f"save_{p_id}", use_container_width=True):
+                                    if update_fb_post(p_id, new_msg).status_code == 200: st.success("✅ 修改成功！"); time.sleep(1); st.rerun()
+                            with c2:
+                                if st.button("🗑️ 刪除排程", key=f"del_{p_id}", type="primary", use_container_width=True):
+                                    if delete_fb_post(p_id).status_code == 200: st.success("✅ 刪除成功！"); time.sleep(1); st.rerun()
+                else: st.info("目前沒有排程貼文。")
+        except: pass
 
 # ==========================================
-# 8. Tab 4: 靈感大腦與成效週報 (專屬 gemini-2.5-flash)
+# 8. Tab 4: 靈感大腦與動態製圖 (專屬 gemini-2.5-flash)
 # ==========================================
 with tab4:
-    st.header("🤖 靈感大腦與成效報告")
-    st.markdown("在此區塊生成的文章將**獨家啟用 Gemini 2.5 Flash 高階模型**，為您構思大甲在地新聞或知識型長文。產生後可直接複製到左方 Tab 1 進行配圖與排程發佈。")
+    st.header("🤖 靈感大腦與自動圖文產生器")
+    st.markdown("在此生成的文章將**獨家啟用 Gemini 2.5 Flash**。系統會自動抓取金句，繪製成高質感的 Facebook 專屬圖卡，讓您無需再煩惱找圖！")
     
-    col_brain, col_report = st.columns([1.2, 1])
+    col_brain, col_preview = st.columns([1, 1])
     
     with col_brain:
-        st.subheader("💡 呼叫高階靈感大腦 (隨時手動)")
-        st.info("⚠️ 注意：此功能耗用 API 額度較大，建議僅在需要構思「重點知識文」或「在地新聞」時使用。")
-        
+        st.subheader("💡 第一步：選擇主題並產出內容")
         topic_type = st.selectbox("請選擇今日想發佈的主題類型：", ["大甲在地新聞", "房產知識通", "當日房市動態"])
-        additional_notes = st.text_input("📝 補充關鍵字 (選填)", placeholder="例如：大甲體育場旁、房地合一稅提醒...")
+        additional_notes = st.text_input("📝 補充關鍵字 (選填)", placeholder="例如：大甲體育場旁、房地合一稅...")
         
-        if st.button("✨ 立即生成靈感文案", type="primary", use_container_width=True):
-            with st.spinner(f"正在呼叫 Gemini 2.5 Flash 撰寫【{topic_type}】..."):
-                result_text = AISmartHelper.generate_daily_inspiration(topic_type, additional_notes)
-                st.session_state['temp_inspiration'] = result_text
+        if st.button("✨ 立即生成靈感文案與字卡", type="primary", use_container_width=True):
+            with st.spinner(f"正在呼叫高階 AI 撰寫文案與繪製圖卡..."):
+                raw_result = AISmartHelper.generate_daily_inspiration(topic_type, additional_notes)
                 
-        if 'temp_inspiration' in st.session_state:
-            st.success("✅ 文案已生成！您可以複製下方內容到 Tab 1 或直接發佈至粉專。")
-            st.text_area("生成結果 (可直接複製修改)：", value=st.session_state['temp_inspiration'], height=350)
+                # 解析 AI 輸出的 [圖文大標題] 與 [貼文內文]
+                title_part = "大甲房市快訊"
+                content_part = raw_result
+                
+                if "[圖文大標題]" in raw_result and "[貼文內文]" in raw_result:
+                    parts = raw_result.split("[貼文內文]")
+                    title_section = parts[0].replace("[圖文大標題]", "").strip()
+                    # 清理可能的多餘空行
+                    title_part = [line for line in title_section.split("\n") if line.strip()][0][:15] 
+                    content_part = parts[1].strip()
+                
+                # 存入 Session 供畫面顯示
+                st.session_state['temp_title'] = title_part
+                st.session_state['temp_content'] = content_part
+                
+                # 自動生成圖卡
+                img_bytes = AISmartHelper.generate_social_card(title_part, topic_type)
+                st.session_state['temp_image_bytes'] = img_bytes
+                
+    with col_preview:
+        if 'temp_content' in st.session_state:
+            st.subheader("🖼️ 第二步：預覽與發佈")
             
-    with col_report:
-        st.subheader("📊 近期成效總結 (快速戰報)")
-        st.write("寫文前沒靈感？看看過去 7 天大甲鄉親對什麼話題最感興趣。")
-        
-        if st.button("🔄 產生過去 7 天快速戰報", use_container_width=True):
-            with st.spinner("正在為您計算近期讚數與留言..."):
-                if not FB_PAGE_ID or not FB_TOKEN:
-                    st.error("⚠️ 缺少 FB API 設定。")
-                else:
-                    try:
-                        since_date = int((datetime.now(tw_tz) - timedelta(days=7)).timestamp())
-                        url = f"https://graph.facebook.com/v25.0/{FB_PAGE_ID}/published_posts"
-                        params = {
-                            'fields': 'message,likes.summary(true),comments.summary(true)',
-                            'since': since_date,
-                            'access_token': FB_TOKEN
-                        }
-                        res = requests.get(url, params=params).json()
-                        posts = res.get('data', [])
-                        
-                        if not posts:
-                            st.warning("過去 7 天內沒有找到貼文紀錄。")
-                        else:
-                            total_likes = sum([p.get('likes', {}).get('summary', {}).get('total_count', 0) for p in posts])
-                            total_comments = sum([p.get('comments', {}).get('summary', {}).get('total_count', 0) for p in posts])
-                            
-                            st.success("✅ 戰報整理完成！")
-                            st.markdown("### 📈 大甲有巢氏 - 近七日戰報")
-                            st.markdown(f"📝 **發布篇數**：{len(posts)} 篇")
-                            st.markdown(f"👍 **獲得總讚數**：{total_likes}")
-                            st.markdown(f"💬 **總留言互動**：{total_comments}")
-                            
-                            avg_likes = total_likes / len(posts)
-                            if avg_likes > 15:
-                                st.info("💡 **AI 總結**：本週鄉親互動熱烈！代表您目前的發文方向很對胃口，建議繼續保持！")
-                            else:
-                                st.info("💡 **AI 總結**：本週互動偏向穩定。您可以試著在左方選擇【大甲在地新聞】生成一篇比較有親和力的生活文來活絡版面喔！")
-                                
-                    except Exception as e:
-                        st.error(f"產出報告失敗：{e}")
+            # 顯示自動生成的圖片
+            st.image(st.session_state['temp_image_bytes'], caption=f"自動生成的金句圖卡 ({st.session_state['temp_title']})", use_container_width=True)
+            
+            st.markdown("**📝 生成的文案 (可自行微調)：**")
+            st.session_state['temp_content'] = st.text_area("文案內容", value=st.session_state['temp_content'], height=200, label_visibility="collapsed")
+            
+            # 核心連動防呆按鈕
+            if st.button("🚀 一鍵帶入到【Tab 1 發文排程區】", type="primary", use_container_width=True):
+                # 1. 把產生的字卡存入待發佈照片陣列
+                if 'ordered_images' not in st.session_state:
+                    st.session_state['ordered_images'] = []
+                st.session_state['ordered_images'] = [st.session_state['temp_image_bytes']]
+                
+                # 2. 自動在 Tab 1 生成一筆排程任務 (預設 15 分鐘後發)
+                st.session_state['generated_posts'] = [{
+                    "發文時間": datetime.now(tw_tz) + timedelta(minutes=15),
+                    "風格": "靈感大腦專屬",
+                    "文案": st.session_state['temp_content']
+                }]
+                
+                st.success("✅ 已成功匯入！請切換至【Tab 1：AI 自動發文與排程】的最下方，確認時間後點擊「全部排程至 Facebook」即可完成發布！")
+                st.balloons()
