@@ -162,7 +162,8 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        models_to_try = ["gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"]
+        # 🔧 【修復重點】：徹底移除已失效的 gemini-pro 與可能不支援的 gemini-2.0，確保穩定不斷線
+        models_to_try = ["gemini-1.5-flash", "gemini-1.5-pro"]
         last_error = ""
         for model_name in models_to_try:
             try:
@@ -194,7 +195,6 @@ class AISmartHelper:
         except Exception:
             return "無法生成廣告建議，請稍後再試。"
 
-    # 🔧 【核心修改點】：針對「實價登錄行情分析」升級 Prompt，強制聚焦近半年最新數據與特定客群
     @staticmethod
     def generate_daily_inspiration(topic_type, additional_notes=""):
         if not GEMINI_KEY: return "⚠️ 找不到 API Key"
@@ -237,9 +237,16 @@ class AISmartHelper:
         📝 **經紀業特許字號:府地價字09901380561**
         📝 **(103)中市經紀字第01306號**
         """
+        
+        # 🔧 【修復重點】：雙層防呆機制，若指定使用的 2.5 版本無法讀取，自動降級為最強的 1.5-pro 旗艦版
         try:
             return get_cached_ai_response(prompt, "gemini-2.5-flash")
         except Exception as e:
+            if "404" in str(e) or "not found" in str(e).lower() or "version" in str(e).lower():
+                try:
+                    return get_cached_ai_response(prompt, "gemini-1.5-pro")
+                except Exception as inner_e:
+                    return f"❌ 靈感生成失敗：{str(inner_e)}"
             return f"❌ 靈感生成失敗：{str(e)}"
 
     @staticmethod
@@ -717,7 +724,7 @@ with tab3:
 # ==========================================
 with tab4:
     st.header("🤖 靈感大腦與行情圖文產生器")
-    st.markdown("在此生成的文章將**獨家啟用 Gemini 2.5 Flash**。系統會自動鎖定特定客群撰寫文案，並產生具備專業權威感的數據分析圖卡！")
+    st.markdown("在此生成的文章將**優先啟用高階模型**。系統會自動鎖定特定客群撰寫文案，並產生具備專業權威感的數據分析圖卡！")
     
     col_brain, col_preview = st.columns([1, 1])
     
@@ -725,7 +732,6 @@ with tab4:
         st.subheader("💡 第一步：選擇主題與設定目標")
         topic_type = st.selectbox("請選擇今日想發佈的主題類型：", ["大甲在地新聞", "房產知識通", "當日房市動態", "📊 實價登錄與區域行情分析"])
         
-        # 🔧 【UI 修改點】：針對行情分析加入明確的「近半年/當月最新行情」輸入指引
         if topic_type == "📊 實價登錄與區域行情分析":
             with st.container():
                 st.info("🎯 **最新行情狙擊模式**：請輸入特定區域與「近半年或本月」最新實價，AI 會為您解析這波行情最吸引哪種客群出籠！")
