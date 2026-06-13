@@ -162,7 +162,6 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        # 🔧 【修復重點：改回舊版別名，確保不報錯且省額度】
         models_to_try = ["gemini-flash-latest"]
         last_error = ""
         for model_name in models_to_try:
@@ -191,7 +190,6 @@ class AISmartHelper:
         💡 **專家一句話提醒**：(給出一句這篇廣告該注意的重點，例如預算建議或受眾心理)
         """
         try:
-            # 🔧 【修復重點：改回舊版別名】
             return get_cached_ai_response(prompt, "gemini-flash-latest")
         except Exception:
             return "無法生成廣告建議，請稍後再試。"
@@ -239,7 +237,6 @@ class AISmartHelper:
         📝 **(103)中市經紀字第01306號**
         """
         
-        # 🔧 【修復重點：Tab 4 專屬保護網。首選 2.5，若失敗退回舊版不會報錯的別名】
         models_to_try = ["gemini-2.5-flash", "gemini-flash-latest"]
         last_error = ""
         
@@ -318,6 +315,16 @@ class AISmartHelper:
 
     @staticmethod
     def add_watermark(image_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
+        # 🔧 新增：若選擇不加浮水印，直接執行基礎轉檔與尺寸安全限制後回傳，跳過繪圖邏輯
+        if position_type == "不加浮水印":
+            try:
+                img = Image.open(io.BytesIO(image_bytes))
+                img = ImageOps.exif_transpose(img)
+                img.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
+                return img.convert("RGB")
+            except:
+                return None
+
         font_filename = "NotoSansCJKtc-Regular.otf"
         if not os.path.exists(font_filename):
             try:
@@ -343,7 +350,7 @@ class AISmartHelper:
             elif position_type == "置中": 
                 pos = (w // 2, h // 2)
                 anchor_align = "mm"
-            else: 
+            else: # 預設右下角
                 pos = (w - margin, h - margin)
                 anchor_align = "rd"
             
@@ -505,7 +512,12 @@ with tab1:
         st.markdown("---")
         st.subheader("🖼️ 照片排序、刪除與浮水印設定")
         col_pos, col_color = st.columns(2)
-        with col_pos: watermark_pos = st.radio("📍 位置", ["右下角", "左下角", "置中"], horizontal=True, index=["右下角", "左下角", "置中"].index(st.session_state['watermark_pos']))
+        
+        # 🔧 擴增「不加浮水印」的選項，維持 session 記憶狀態
+        pos_options = ["右下角", "左下角", "置中", "不加浮水印"]
+        current_pos_index = pos_options.index(st.session_state['watermark_pos']) if st.session_state['watermark_pos'] in pos_options else 0
+        
+        with col_pos: watermark_pos = st.radio("📍 位置", pos_options, horizontal=True, index=current_pos_index)
         with col_color: watermark_color = st.radio("🎨 顏色", ["經典白", "專屬綠 (推薦)", "亮眼黃"], horizontal=True, index=["經典白", "專屬綠 (推薦)", "亮眼黃"].index(st.session_state['watermark_color']))
             
         st.session_state['watermark_pos'] = watermark_pos
