@@ -162,16 +162,22 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        models_to_try = ["gemini-flash-latest"]
+        # 🔧 架構升級：加入高免費額度的 1.5-flash 作為優先與備援
+        models_to_try = ["gemini-1.5-flash", "gemini-flash-latest", "gemini-1.5-pro"]
         last_error = ""
         for model_name in models_to_try:
             try:
                 return get_cached_ai_response(prompt, model_name, image_bytes)
             except Exception as e:
-                last_error = str(e)
+                err_str = str(e)
+                last_error = err_str
+                # 如果遇到 429 錯誤，略作暫停後自動嘗試下一個模型
+                if "429" in err_str or "quota" in err_str.lower():
+                    time.sleep(2)
+                    continue
                 time.sleep(1)
-                continue
-        return f"❌ 生成失敗：{last_error}"
+        
+        return f"❌ 生成失敗：API 額度已耗盡或系統忙碌，請稍後再試。 ({last_error})"
 
     @staticmethod
     def generate_ad_advice(post_text):
@@ -190,7 +196,7 @@ class AISmartHelper:
         💡 **專家一句話提醒**：(給出一句這篇廣告該注意的重點，例如預算建議或受眾心理)
         """
         try:
-            return get_cached_ai_response(prompt, "gemini-flash-latest")
+            return get_cached_ai_response(prompt, "gemini-1.5-flash")
         except Exception:
             return "無法生成廣告建議，請稍後再試。"
 
@@ -237,7 +243,8 @@ class AISmartHelper:
         📝 **(103)中市經紀字第01306號**
         """
         
-        models_to_try = ["gemini-2.5-flash", "gemini-flash-latest"]
+        # 🔧 架構升級：同樣將 1.5 系列納入穩定備援
+        models_to_try = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-flash-latest"]
         last_error = ""
         
         for model_name in models_to_try:
@@ -247,13 +254,13 @@ class AISmartHelper:
                 err_str = str(e)
                 if "403" in err_str or "API_KEY_INVALID" in err_str:
                     return "❌ 靈感生成失敗：API 金鑰無效或權限不足，請檢查您的 GEMINI_KEY。"
-                if "429" in err_str or "quota" in err_str.lower():
-                    return "❌ 靈感生成失敗：API 額度已耗盡 (Quota Exceeded)，請稍等片刻再試。"
                 
                 last_error = err_str
-                continue 
+                if "429" in err_str or "quota" in err_str.lower():
+                    time.sleep(2)
+                    continue 
                 
-        return f"❌ 靈感生成失敗：{last_error}"
+        return f"❌ 靈感生成失敗：API 額度已耗盡，請稍等片刻再試。 (系統回報: 429 Quota Exceeded)"
 
     @staticmethod
     def generate_social_card(title_text, theme_type="大甲在地新聞"):
@@ -315,7 +322,6 @@ class AISmartHelper:
 
     @staticmethod
     def add_watermark(image_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
-        # 🔧 新增：若選擇不加浮水印，直接執行基礎轉檔與尺寸安全限制後回傳，跳過繪圖邏輯
         if position_type == "不加浮水印":
             try:
                 img = Image.open(io.BytesIO(image_bytes))
@@ -350,7 +356,7 @@ class AISmartHelper:
             elif position_type == "置中": 
                 pos = (w // 2, h // 2)
                 anchor_align = "mm"
-            else: # 預設右下角
+            else: 
                 pos = (w - margin, h - margin)
                 anchor_align = "rd"
             
@@ -513,7 +519,6 @@ with tab1:
         st.subheader("🖼️ 照片排序、刪除與浮水印設定")
         col_pos, col_color = st.columns(2)
         
-        # 🔧 擴增「不加浮水印」的選項，維持 session 記憶狀態
         pos_options = ["右下角", "左下角", "置中", "不加浮水印"]
         current_pos_index = pos_options.index(st.session_state['watermark_pos']) if st.session_state['watermark_pos'] in pos_options else 0
         
