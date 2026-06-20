@@ -162,8 +162,8 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        # 🔧 架構升級：加入高免費額度的 1.5-flash 作為優先與備援
-        models_to_try = ["gemini-1.5-flash", "gemini-flash-latest", "gemini-1.5-pro"]
+        # 🔧 修正 404 問題：使用最穩定的最新別名，並以 gemini-pro 兜底
+        models_to_try = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro"]
         last_error = ""
         for model_name in models_to_try:
             try:
@@ -171,13 +171,14 @@ class AISmartHelper:
             except Exception as e:
                 err_str = str(e)
                 last_error = err_str
-                # 如果遇到 429 錯誤，略作暫停後自動嘗試下一個模型
                 if "429" in err_str or "quota" in err_str.lower():
                     time.sleep(2)
                     continue
+                if "404" in err_str or "not found" in err_str.lower():
+                    continue # 直接切換下一個穩定的模型別名
                 time.sleep(1)
         
-        return f"❌ 生成失敗：API 額度已耗盡或系統忙碌，請稍後再試。 ({last_error})"
+        return f"❌ 生成失敗：API 額度已耗盡或模型版本無效，請稍後再試。 ({last_error})"
 
     @staticmethod
     def generate_ad_advice(post_text):
@@ -196,9 +197,12 @@ class AISmartHelper:
         💡 **專家一句話提醒**：(給出一句這篇廣告該注意的重點，例如預算建議或受眾心理)
         """
         try:
-            return get_cached_ai_response(prompt, "gemini-1.5-flash")
+            return get_cached_ai_response(prompt, "gemini-1.5-flash-latest")
         except Exception:
-            return "無法生成廣告建議，請稍後再試。"
+            try:
+                return get_cached_ai_response(prompt, "gemini-pro")
+            except Exception:
+                return "無法生成廣告建議，請稍後再試。"
 
     @staticmethod
     def generate_daily_inspiration(topic_type, additional_notes=""):
@@ -243,8 +247,8 @@ class AISmartHelper:
         📝 **(103)中市經紀字第01306號**
         """
         
-        # 🔧 架構升級：同樣將 1.5 系列納入穩定備援
-        models_to_try = ["gemini-1.5-flash", "gemini-2.5-flash", "gemini-flash-latest"]
+        # 🔧 修正 404 問題：使用最穩定的最新別名，並以 gemini-pro 兜底
+        models_to_try = ["gemini-1.5-flash-latest", "gemini-1.5-flash", "gemini-pro"]
         last_error = ""
         
         for model_name in models_to_try:
@@ -259,8 +263,10 @@ class AISmartHelper:
                 if "429" in err_str or "quota" in err_str.lower():
                     time.sleep(2)
                     continue 
+                if "404" in err_str or "not found" in err_str.lower():
+                    continue # 直接切換下一個穩定的模型別名
                 
-        return f"❌ 靈感生成失敗：API 額度已耗盡，請稍等片刻再試。 (系統回報: 429 Quota Exceeded)"
+        return f"❌ 靈感生成失敗：API 額度已耗盡或系統忙碌，請稍等片刻再試。 (系統回報: {last_error})"
 
     @staticmethod
     def generate_social_card(title_text, theme_type="大甲在地新聞"):
