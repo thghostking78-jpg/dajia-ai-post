@@ -11,6 +11,7 @@ from datetime import datetime, timedelta
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
+from google.api_core import exceptions as google_exceptions
 
 # ==========================================
 # 0. 頁面與核心設定
@@ -28,7 +29,7 @@ if GEMINI_KEY:
 tw_tz = pytz.timezone('Asia/Taipei')
 
 # ==========================================
-# 1. 智慧快取與多模型備援層
+# 1. 智慧快取與多模型備援層 (水電邏輯區)
 # ==========================================
 
 @st.cache_data(show_spinner="AI 正在思考中...", ttl=3600)
@@ -162,17 +163,21 @@ class AISmartHelper:
             #大甲美食 #大甲景點 #大甲房產 #有巢氏房屋台中大甲店 #大甲在地推薦
             """
 
-        # 🔧 【維持原樣：使用您驗證最穩定的代碼】
-        models_to_try = ["gemini-flash-latest"]
+        # 🔧 引入模型降級備援策略
+        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
         last_error = ""
         for model_name in models_to_try:
             try:
                 return get_cached_ai_response(prompt, model_name, image_bytes)
+            except google_exceptions.ResourceExhausted as e:
+                # 429 Quota Exceeded：記錄錯誤，並立即切換至下一個等級的模型
+                last_error = f"{model_name} 額度耗盡"
+                continue
             except Exception as e:
                 last_error = str(e)
                 time.sleep(1)
                 continue
-        return f"❌ 生成失敗：{last_error}"
+        return f"❌ 生成失敗：所有模型的免費額度皆已耗盡或發生異常 ({last_error})。請稍後再試或升級 API 計畫。"
 
     @staticmethod
     def generate_ad_advice(post_text):
@@ -190,11 +195,15 @@ class AISmartHelper:
         🏷️ **建議興趣標籤**：(給出 3~5 個精準的 Meta 興趣標籤)
         💡 **專家一句話提醒**：(給出一句這篇廣告該注意的重點，例如預算建議或受眾心理)
         """
-        try:
-            # 🔧 【維持原樣】
-            return get_cached_ai_response(prompt, "gemini-flash-latest")
-        except Exception:
-            return "無法生成廣告建議，請稍後再試。"
+        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
+        for model_name in models_to_try:
+            try:
+                return get_cached_ai_response(prompt, model_name)
+            except google_exceptions.ResourceExhausted:
+                continue
+            except Exception:
+                pass
+        return "❌ 無法生成廣告建議：API 額度已達上限，請稍後再試。"
 
     @staticmethod
     def generate_daily_inspiration(topic_type, additional_notes=""):
@@ -239,24 +248,23 @@ class AISmartHelper:
         📝 **(103)中市經紀字第01306號**
         """
         
-        # 🔧 【維持原樣：使用您驗證最穩定的代碼】
-        models_to_try = ["gemini-2.5-flash", "gemini-flash-latest"]
+        models_to_try = ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-1.5-flash"]
         last_error = ""
         
         for model_name in models_to_try:
             try:
                 return get_cached_ai_response(prompt, model_name)
+            except google_exceptions.ResourceExhausted as e:
+                last_error = f"{model_name} 額度耗盡"
+                continue
             except Exception as e:
                 err_str = str(e)
                 if "403" in err_str or "API_KEY_INVALID" in err_str:
                     return "❌ 靈感生成失敗：API 金鑰無效或權限不足，請檢查您的 GEMINI_KEY。"
-                if "429" in err_str or "quota" in err_str.lower():
-                    return "❌ 靈感生成失敗：API 額度已耗盡 (Quota Exceeded)，請稍等片刻再試。"
-                
                 last_error = err_str
                 continue 
                 
-        return f"❌ 靈感生成失敗：{last_error}"
+        return f"❌ 靈感生成失敗：API 額度已耗盡 (Quota Exceeded)，且備用模型皆無法調用。請稍等片刻再試。"
 
     @staticmethod
     def generate_social_card(title_text, theme_type="大甲在地新聞"):
@@ -318,12 +326,11 @@ class AISmartHelper:
 
     @staticmethod
     def add_watermark(image_bytes, text="翔豪不動產 - 有巢氏台中大甲店", position_type="右下角", color_theme="專屬綠 (推薦)"):
-        # 🔧 【精準修正】：加入純淨的無浮水印處理邏輯
         if position_type == "不加浮水印":
             try:
                 img = Image.open(io.BytesIO(image_bytes))
-                img = ImageOps.exif_transpose(img) # 保留方向校正
-                img.thumbnail((2048, 2048), Image.Resampling.LANCZOS) # 保留安全尺寸
+                img = ImageOps.exif_transpose(img) 
+                img.thumbnail((2048, 2048), Image.Resampling.LANCZOS) 
                 return img.convert("RGB")
             except:
                 return None
@@ -516,7 +523,6 @@ with tab1:
         st.subheader("🖼️ 照片排序、刪除與浮水印設定")
         col_pos, col_color = st.columns(2)
         
-        # 🔧 【精準修正】：前端 UI 加入選項與防禦機制
         pos_options = ["右下角", "左下角", "置中", "不加浮水印"]
         current_pos_index = pos_options.index(st.session_state['watermark_pos']) if st.session_state['watermark_pos'] in pos_options else 0
         
